@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#ffffff">
+    <title>CardFlow OCR · 명함 고객관리</title>
+    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v5') }}">
+    <script defer src="{{ url_for('web.frontend_script', v='frontend-v5') }}"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#" aria-label="CardFlow OCR 홈">
+          <span class="brand-mark" aria-hidden="true">CF</span>
+          <span class="brand-name">CardFlow <strong>OCR</strong></span>
+        </a>
+        <nav class="main-nav" aria-label="주 메뉴">
+          <button class="nav-button active" data-view="scanner" type="button">명함 스캔</button>
+          <button class="nav-button" data-view="contacts" type="button">고객정보</button>
+        </nav>
+        <div id="ocr-status" class="status-chip checking"><span class="status-dot"></span><span>OCR 확인 중</span></div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section id="scanner-view" class="view active">
+        <div class="page-heading scanner-heading">
+          <div>
+            <p class="eyebrow">BUSINESS CARD SCANNER</p>
+            <h1>명함 한 장을 <span>고객정보</span>로 바꾸세요</h1>
+            <p class="page-description">카메라로 촬영하거나 이미지를 올리면 명함을 보정하고, 한글·영문 정보를 자동으로 분류합니다.</p>
+          </div>
+          <ol class="workflow" aria-label="처리 단계">
+            <li><b>1</b><span>촬영</span></li>
+            <li><b>2</b><span>OCR 인식</span></li>
+            <li><b>3</b><span>확인·저장</span></li>
+          </ol>
+        </div>
+
+        <div class="scanner-grid">
+          <article class="panel capture-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="step">1</span>
+                <div>
+                  <h2>명함 이미지</h2>
+                  <p>가이드 안에 명함 전체가 들어오도록 맞춰주세요.</p>
+                </div>
+              </div>
+              <span class="file-note">최대 15MB</span>
+            </div>
+            <div id="camera-stage" class="camera-stage">
+              <video id="camera" autoplay playsinline muted></video>
+              <img id="captured-preview" alt="촬영 또는 보정된 명함 미리보기">
+              <div class="camera-placeholder">
+                <span class="camera-symbol" aria-hidden="true"></span>
+                <strong>명함을 촬영하거나 이미지를 선택하세요</strong>
+                <span>JPG, PNG, WEBP, BMP 파일을 지원합니다.</span>
+              </div>
+              <div class="capture-guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+              <div id="processing" class="processing" aria-live="polite">
+                <span class="spinner"></span>
+                <strong>명함을 분석하고 있습니다</strong>
+                <small>외곽선 보정 · OCR · 정보 분류</small>
+              </div>
+            </div>
+            <div class="capture-actions">
+              <button id="camera-toggle" class="button secondary" type="button">카메라 시작</button>
+              <button id="capture-button" class="button primary" type="button" disabled>촬영하고 인식</button>
+              <label class="button outline" for="image-upload">이미지 선택</label>
+              <input id="image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/bmp" hidden>
+            </div>
+            <div id="detection-note" class="detection-note" hidden></div>
+          </article>
+
+          <article class="panel result-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="step">2</span>
+                <div>
+                  <h2>인식 결과</h2>
+                  <p>오인식된 내용은 저장 전에 직접 수정할 수 있습니다.</p>
+                </div>
+              </div>
+            </div>
+            <form id="contact-form" autocomplete="off">
+              <input id="contact-id" type="hidden">
+              <input id="image-token" type="hidden">
+              <div class="form-grid">
+                <label><span>이름</span><input name="name" placeholder="홍길동"></label>
+                <label><span>회사</span><input name="company" placeholder="주식회사 카드플로우"></label>
+                <label><span>직책</span><input name="job_title" placeholder="영업팀 과장"></label>
+                <label><span>전화번호 1</span><input name="phone" inputmode="tel" placeholder="010-1234-5678"></label>
+                <label><span>전화번호 2</span><input name="phone2" inputmode="tel" placeholder="053-123-4567"></label>
+                <label><span>이메일</span><input name="email" type="email" placeholder="name@company.com"></label>
+                <label class="wide"><span>웹사이트</span><input name="website" placeholder="www.company.com"></label>
+                <label class="wide"><span>주소</span><input name="address" placeholder="서울특별시 ..."></label>
+                <label class="wide"><span>메모</span><textarea name="memo" rows="2" placeholder="미팅 내용이나 후속 조치를 기록하세요"></textarea></label>
+              </div>
+              <details class="raw-details">
+                <summary>OCR 원문 확인</summary>
+                <textarea id="raw-text" name="raw_text" rows="6" placeholder="인식된 전체 텍스트가 표시됩니다"></textarea>
+                <button id="reparse-button" class="text-button" type="button">수정한 원문 다시 분류</button>
+              </details>
+              <div class="form-actions">
+                <button id="form-reset" class="button outline" type="button">초기화</button>
+                <button id="save-button" class="button primary save" type="submit">고객정보 저장</button>
+              </div>
+            </form>
+          </article>
+        </div>
+      </section>
+
+      <section id="contacts-view" class="view">
+        <div class="page-heading contacts-heading">
+          <div>
+            <p class="eyebrow">CUSTOMER DIRECTORY</p>
+            <h1>고객정보 관리</h1>
+            <p class="page-description">등록된 명함을 이름, 회사, 전화번호 또는 이메일로 검색하세요.</p>
+          </div>
+          <button id="new-contact" class="button primary" type="button">새 고객 등록</button>
+        </div>
+        <article class="panel directory-panel">
+          <div class="directory-toolbar">
+            <label class="search-box">
+              <span class="search-mark" aria-hidden="true">⌕</span>
+              <input id="contact-search" type="search" placeholder="이름, 회사, 전화번호, 이메일 검색">
+            </label>
+            <div class="export-actions">
+              <a id="csv-export" class="button outline small" href="/api/export?format=csv">CSV</a>
+              <a id="xlsx-export" class="button outline small" href="/api/export?format=xlsx">Excel</a>
+            </div>
+          </div>
+          <div class="directory-summary"><strong id="contact-count">0</strong>명의 고객</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>고객</th><th>회사 / 직책</th><th>전화번호</th><th>이메일</th><th>등록일</th><th><span class="sr-only">작업</span></th></tr></thead>
+              <tbody id="contacts-body"></tbody>
+            </table>
+            <div id="empty-contacts" class="empty-state">
+              <span class="empty-mark" aria-hidden="true">＋</span>
+              <strong>등록된 고객이 없습니다</strong>
+              <p>첫 명함을 스캔해 고객정보를 만들어 보세요.</p>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <canvas id="capture-canvas" hidden></canvas>
+  </body>
+</html>
