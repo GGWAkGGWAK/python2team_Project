@@ -1,0 +1,317 @@
+(() => {
+  "use strict";
+
+  const $ = (selector) => document.querySelector(selector);
+  const $$ = (selector) => [...document.querySelectorAll(selector)];
+  const state = { stream: null, contacts: [], searchTimer: null };
+
+  const elements = {
+    camera: $("#camera"),
+    cameraStage: $("#camera-stage"),
+    cameraToggle: $("#camera-toggle"),
+    captureButton: $("#capture-button"),
+    canvas: $("#capture-canvas"),
+    preview: $("#captured-preview"),
+    upload: $("#image-upload"),
+    processing: $("#processing"),
+    detectionNote: $("#detection-note"),
+    form: $("#contact-form"),
+    contactId: $("#contact-id"),
+    imageToken: $("#image-token"),
+    rawText: $("#raw-text"),
+    search: $("#contact-search"),
+    contactsBody: $("#contacts-body"),
+    emptyContacts: $("#empty-contacts"),
+    contactCount: $("#contact-count"),
+    ocrStatus: $("#ocr-status"),
+  };
+
+  function toast(message, type = "success", duration = 3800) {
+    const item = document.createElement("div");
+    item.className = `toast ${type}`;
+    item.textContent = message;
+    $("#toast-region").append(item);
+    window.setTimeout(() => item.remove(), duration);
+  }
+
+  async function api(url, options = {}) {
+    const response = await fetch(url, options);
+    const result = await response.json().catch(() => ({
+      ok: false,
+      error: { message: "서버 응답을 읽지 못했습니다." },
+    }));
+    if (!response.ok || result.ok === false) {
+      const error = new Error(result.error?.message || "요청에 실패했습니다.");
+      error.code = result.error?.code;
+      error.details = result.error;
+      throw error;
+    }
+    return result;
+  }
+
+  function switchView(name) {
+    $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${name}-view`));
+    $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
+    if (name === "contacts") loadContacts();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function checkHealth() {
+    try {
+      const result = await api("/api/health");
+      elements.ocrStatus.classList.remove("checking");
+      if (result.ocr.installed) {
+        elements.ocrStatus.classList.add("ready");
+        elements.ocrStatus.lastChild.textContent = "OCR 준비됨";
+      } else {
+        elements.ocrStatus.classList.add("error");
+        elements.ocrStatus.lastChild.textContent = "OCR 설치 필요";
+        elements.ocrStatus.title = "requirements.txt 설치 후 OCR을 사용할 수 있습니다.";
+      }
+    } catch {
+      elements.ocrStatus.classList.add("error");
+      elements.ocrStatus.lastChild.textContent = "서버 연결 오류";
+    }
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast("이 브라우저는 카메라 촬영을 지원하지 않습니다. 이미지 선택을 이용해 주세요.", "error");
+      return;
+    }
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          advanced: [{ focusMode: "continuous" }],
+        },
+        audio: false,
+      });
+      elements.camera.srcObject = state.stream;
+      elements.cameraStage.className = "camera-stage camera-active";
+      elements.cameraToggle.textContent = "카메라 끄기";
+      elements.captureButton.disabled = false;
+    } catch (error) {
+      toast(`카메라를 열 수 없습니다: ${error.message}`, "error");
+    }
+  }
+
+  function stopCamera() {
+    state.stream?.getTracks().forEach((track) => track.stop());
+    state.stream = null;
+    elements.camera.srcObject = null;
+    elements.cameraStage.className = "camera-stage";
+    elements.cameraToggle.textContent = "카메라 시작";
+    elements.captureButton.disabled = true;
+  }
+
+  async function captureFrame() {
+    const track = state.stream?.getVideoTracks?.()[0];
+    if (track && "ImageCapture" in window) {
+      try {
+        const photo = await new ImageCapture(track).takePhoto();
+        await processImage(new File([photo], "camera-capture.jpg", { type: photo.type || "image/jpeg" }));
+        return;
+      } catch {
+        // Some desktop cameras expose ImageCapture but do not support takePhoto.
+      }
+    }
+    const { videoWidth, videoHeight } = elements.camera;
+    if (!videoWidth || !videoHeight) return;
+    elements.canvas.width = videoWidth;
+    elements.canvas.height = videoHeight;
+    elements.canvas.getContext("2d").drawImage(elements.camera, 0, 0);
+    const blob = await new Promise((resolve) => elements.canvas.toBlob(resolve, "image/jpeg", 0.94));
+    if (blob) await processImage(new File([blob], "camera-capture.jpg", { type: "image/jpeg" }));
+  }
+
+  function fillForm(fields) {
+    for (const [key, value] of Object.entries(fields || {})) {
+      const field = elements.form.elements.namedItem(key);
+      if (field) field.value = value || "";
+    }
+  }
+
+  async function processImage(file) {
+    if (file.size > 15 * 1024 * 1024) {
+      toast("15MB 이하의 이미지를 선택해 주세요.", "error");
+      return;
+    }
+    const formData = new FormData();
+    formData.append("image", file, file.name || "business-card.jpg");
+    elements.processing.classList.add("active");
+    try {
+      const result = await api("/api/ocr", { method: "POST", body: formData });
+      const data = result.data;
+      stopCamera();
+      elements.preview.src = data.preview;
+      elements.cameraStage.className = "camera-stage preview-active";
+      elements.imageToken.value = data.image_token;
+      elements.contactId.value = "";
+      fillForm(data.fields);
+      const notes = data.detection.warnings || [];
+      elements.detectionNote.hidden = notes.length === 0;
+      elements.detectionNote.textContent = notes.join(" ");
+      toast(`${data.ocr_lines.length}개 텍스트 영역을 인식했습니다.`);
+    } catch (error) {
+      toast(error.message, "error", 6500);
+    } finally {
+      elements.processing.classList.remove("active");
+      elements.upload.value = "";
+    }
+  }
+
+  function formPayload() {
+    const data = Object.fromEntries(new FormData(elements.form).entries());
+    data.image_token = elements.imageToken.value;
+    return data;
+  }
+
+  async function saveContact(event, allowDuplicate = false) {
+    event?.preventDefault();
+    const data = formPayload();
+    if (allowDuplicate) data.allow_duplicate = true;
+    const id = elements.contactId.value;
+    const url = id ? `/api/contacts/${id}` : "/api/contacts";
+    try {
+      await api(url, {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      toast(id ? "고객정보를 수정했습니다." : "고객정보를 저장했습니다.");
+      resetForm();
+      switchView("contacts");
+    } catch (error) {
+      if (error.code === "DUPLICATE_CONTACT") {
+        const duplicate = error.details.duplicates?.[0];
+        const label = duplicate ? `${duplicate.name || "이름 없음"} (${duplicate.company || "회사 없음"})` : "기존 고객";
+        if (window.confirm(`${label}과 전화번호 또는 이메일이 같습니다. 그래도 저장할까요?`)) {
+          return saveContact(null, true);
+        }
+      } else {
+        toast(error.message, "error");
+      }
+    }
+  }
+
+  function resetForm() {
+    elements.form.reset();
+    elements.contactId.value = "";
+    elements.imageToken.value = "";
+    elements.preview.removeAttribute("src");
+    if (!state.stream) elements.cameraStage.className = "camera-stage";
+    elements.detectionNote.hidden = true;
+    $("#save-button").lastChild.textContent = " 고객정보 저장";
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>'"]/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+    })[char]);
+  }
+
+  function initials(name) {
+    const value = String(name || "?").trim();
+    return escapeHtml(value.slice(0, 2).toUpperCase());
+  }
+
+  function renderContacts(contacts) {
+    state.contacts = contacts;
+    elements.contactCount.textContent = contacts.length;
+    elements.emptyContacts.classList.toggle("visible", contacts.length === 0);
+    elements.contactsBody.innerHTML = contacts.map((contact) => `
+      <tr>
+        <td><div class="person-cell"><span class="avatar">${initials(contact.name)}</span><span>${escapeHtml(contact.name || "이름 없음")}</span></div></td>
+        <td>${escapeHtml(contact.company || "-")}<span class="subtle">${escapeHtml(contact.job_title || "")}</span></td>
+        <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span></td>
+        <td>${escapeHtml(contact.email || "-")}</td>
+        <td>${escapeHtml((contact.created_at || "").slice(0, 10))}</td>
+        <td><div class="row-actions">
+          <button class="icon-button edit-contact" data-id="${contact.id}" type="button">수정</button>
+          <button class="icon-button danger delete-contact" data-id="${contact.id}" type="button">삭제</button>
+        </div></td>
+      </tr>`).join("");
+  }
+
+  async function loadContacts() {
+    try {
+      const query = encodeURIComponent(elements.search.value.trim());
+      const result = await api(`/api/contacts?q=${query}`);
+      renderContacts(result.data);
+      $("#csv-export").href = `/api/export?format=csv&q=${query}`;
+      $("#xlsx-export").href = `/api/export?format=xlsx&q=${query}`;
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  }
+
+  async function editContact(id) {
+    try {
+      const result = await api(`/api/contacts/${id}`);
+      resetForm();
+      fillForm(result.data);
+      elements.contactId.value = result.data.id;
+      elements.imageToken.value = result.data.image_token || "";
+      if (result.data.image_token) {
+        elements.preview.src = `/api/scans/${result.data.image_token}`;
+        elements.cameraStage.className = "camera-stage preview-active";
+      }
+      $("#save-button").lastChild.textContent = " 고객정보 수정";
+      switchView("scanner");
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  }
+
+  async function deleteContact(id) {
+    const contact = state.contacts.find((item) => item.id === Number(id));
+    if (!window.confirm(`${contact?.name || "이 고객"}의 정보를 삭제할까요?`)) return;
+    try {
+      await api(`/api/contacts/${id}`, { method: "DELETE" });
+      toast("고객정보를 삭제했습니다.");
+      loadContacts();
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  }
+
+  async function reparseText() {
+    try {
+      const result = await api("/api/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_text: elements.rawText.value }),
+      });
+      fillForm(result.data.fields);
+      toast("OCR 원문을 다시 분류했습니다.");
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  }
+
+  $$(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
+  elements.cameraToggle.addEventListener("click", () => state.stream ? stopCamera() : startCamera());
+  elements.captureButton.addEventListener("click", captureFrame);
+  elements.upload.addEventListener("change", () => elements.upload.files[0] && processImage(elements.upload.files[0]));
+  elements.form.addEventListener("submit", saveContact);
+  $("#form-reset").addEventListener("click", resetForm);
+  $("#reparse-button").addEventListener("click", reparseText);
+  $("#new-contact").addEventListener("click", () => { resetForm(); switchView("scanner"); });
+  elements.search.addEventListener("input", () => {
+    window.clearTimeout(state.searchTimer);
+    state.searchTimer = window.setTimeout(loadContacts, 250);
+  });
+  elements.contactsBody.addEventListener("click", (event) => {
+    const edit = event.target.closest(".edit-contact");
+    const remove = event.target.closest(".delete-contact");
+    if (edit) editContact(edit.dataset.id);
+    if (remove) deleteContact(remove.dataset.id);
+  });
+  window.addEventListener("beforeunload", stopCamera);
+
+  checkHealth();
+  loadContacts();
+})();
