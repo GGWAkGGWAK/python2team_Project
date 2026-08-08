@@ -1,0 +1,436 @@
+===============================================================================
+CardFlow OCR 설치 및 실행 가이드 (Windows 10/11, 64비트)
+===============================================================================
+
+이 문서는 다른 Windows PC에서 CardFlow OCR 명함 인식 프로그램을 설치하고
+실행하는 방법을 처음부터 설명합니다.
+
+
+1. 프로그램 구성
+-------------------------------------------------------------------------------
+
+- 웹 서버: Python + Flask
+- 기본 딥러닝 OCR: PP-OCRv5 Korean (PaddleOCR/PaddlePaddle)
+- 보조 딥러닝 OCR: EasyOCR (PyTorch)
+- 이미지 처리: OpenCV
+- 고객정보 저장: SQLite
+- 실행 주소: http://127.0.0.1:5000
+
+GPU는 필수가 아닙니다. Windows 64비트 CPU에서 실행할 수 있습니다.
+
+
+2. 설치 전에 준비할 것
+-------------------------------------------------------------------------------
+
+[필수]
+
+1) Windows 10 또는 Windows 11 64비트
+2) 인터넷 연결
+   - Python 패키지 설치에 필요합니다.
+   - 최초 OCR 실행 시 PP-OCRv5/EasyOCR 모델 다운로드에 필요합니다.
+3) Python 3.11 64비트
+4) 프로젝트 폴더 전체
+
+[권장]
+
+- 메모리: 8GB 이상
+- 저장공간: 5GB 이상 여유 공간
+- 프로젝트 경로에는 한글, 괄호, 특수문자, 긴 공백을 사용하지 않는 것을 권장합니다.
+
+권장 프로젝트 경로 예시:
+
+    C:\CardFlowOCR\python2team_Project
+
+
+3. Python 다운로드 및 설치
+-------------------------------------------------------------------------------
+
+Python 3.11.9 Windows installer (64-bit)를 설치합니다.
+
+공식 다운로드 페이지:
+https://www.python.org/downloads/release/python-3119/
+
+페이지 아래쪽 Files에서 다음 항목을 선택합니다.
+
+    Windows installer (64-bit)
+
+설치 화면에서 다음 항목을 반드시 체크합니다.
+
+    [체크] Add python.exe to PATH
+    [선택] Install launcher for all users (recommended)
+
+그 다음 Install Now를 선택합니다.
+
+설치 확인:
+
+1) Windows 시작 메뉴에서 PowerShell을 실행합니다.
+2) 다음 명령을 입력합니다.
+
+    py -3.11 --version
+
+정상 예시:
+
+    Python 3.11.9
+
+
+4. pip 다운로드에 대한 설명
+-------------------------------------------------------------------------------
+
+pip은 Python 패키지를 내려받아 설치하는 프로그램입니다.
+Python 공식 설치 프로그램에 pip이 포함되므로 pip 파일을 별도로 다운로드할
+필요가 없습니다.
+
+pip은 항상 다음처럼 "python -m pip" 형태로 실행하는 것을 권장합니다.
+
+    py -3.11 -m pip --version
+
+"pip을 찾을 수 없습니다" 오류가 발생해도 아래 설치 명령은
+가상환경의 Python을 직접 사용하므로 대부분 정상 작동합니다.
+
+
+5. 프로젝트 폴더 준비
+-------------------------------------------------------------------------------
+
+전달받은 프로젝트 ZIP 파일이 있다면 다음 위치에 압축을 풉니다.
+
+    C:\CardFlowOCR\python2team_Project
+
+압축을 푼 후 다음 파일과 폴더가 보여야 합니다.
+
+    app.py
+    requirements.txt
+    README.md
+    cardocr\
+    tests\
+
+주의:
+
+- 다른 PC에 전달할 때 기존 .venv 폴더는 전달하지 않습니다.
+- 기존 고객정보를 전달하지 않을 경우 instance 폴더도 제외합니다.
+- .venv는 PC와 Python 설치 경로가 바뀌면 정상 동작하지 않을 수 있습니다.
+
+
+6. PowerShell에서 프로젝트 폴더 열기
+-------------------------------------------------------------------------------
+
+PowerShell을 실행한 후 다음 명령으로 이동합니다.
+
+    cd C:\CardFlowOCR\python2team_Project
+
+현재 위치 확인:
+
+    Get-Location
+
+파일 확인:
+
+    Get-ChildItem
+
+
+7. Python 가상환경 만들기
+-------------------------------------------------------------------------------
+
+프로젝트마다 독립된 패키지를 사용하기 위해 .venv를 만듭니다.
+
+    py -3.11 -m venv .venv
+
+생성 확인:
+
+    .\.venv\Scripts\python.exe --version
+
+주의:
+
+PowerShell에서 .\venv\Scripts\Activate.ps1 실행 시 "스크립트를 실행할 수 없음"
+오류가 발생할 수 있습니다. 이 안내서는 가상환경을 활성화하지 않고
+.venv 안의 python.exe를 직접 사용하므로 실행 정책을 변경할 필요가 없습니다.
+
+
+8. pip 및 필수 패키지 설치
+-------------------------------------------------------------------------------
+
+프로젝트 폴더에서 다음 명령을 순서대로 실행합니다.
+
+1) pip, setuptools, wheel 업데이트
+
+    .\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+
+2) requirements.txt에 기록된 전체 패키지 설치
+
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+설치되는 주요 패키지:
+
+- Flask
+- Waitress
+- OpenCV 4.10
+- EasyOCR + PyTorch
+- PaddlePaddle 3.3.0 CPU
+- PaddleOCR 3.7
+- openpyxl
+
+PC와 인터넷 속도에 따라 설치에 시간이 걸릴 수 있습니다.
+
+설치 상태 확인:
+
+    .\.venv\Scripts\python.exe -m pip check
+
+정상 결과:
+
+    No broken requirements found.
+
+
+9. 프로그램 실행
+-------------------------------------------------------------------------------
+
+[개발/개인 PC에서 실행]
+
+    .\.venv\Scripts\python.exe app.py
+
+PowerShell에 다음과 비슷한 주소가 표시됩니다.
+
+    http://127.0.0.1:5000
+
+Chrome 또는 Edge 브라우저에서 다음 주소를 엽니다.
+
+    http://127.0.0.1:5000
+
+프로그램 종료:
+
+    실행 중인 PowerShell에서 Ctrl + C
+
+
+10. 최초 OCR 실행 시 모델 다운로드
+-------------------------------------------------------------------------------
+
+처음 명함을 인식할 때 딥러닝 모델이 자동으로 다운로드됩니다.
+촬영할 때마다 학습하거나 모델을 다시 다운로드하는 것은 아닙니다.
+
+PP-OCRv5 모델 기본 저장 위치:
+
+    C:\Users\사용자이름\.paddlex\official_models\
+
+주요 모델:
+
+    PP-OCRv5_server_det
+    korean_PP-OCRv5_mobile_rec
+
+EasyOCR 모델 기본 저장 위치:
+
+    C:\Users\사용자이름\.EasyOCR\model\
+
+최초 인식은 다운로드와 모델 초기화 때문에 느릴 수 있습니다.
+두 번째 인식부터 저장된 모델을 재사용합니다.
+
+
+11. OCR 설치 상태 확인
+-------------------------------------------------------------------------------
+
+프로그램 실행 후 브라우저에서 다음 주소를 엽니다.
+
+    http://127.0.0.1:5000/api/health
+
+정상 상태에는 다음 엔진이 표시됩니다.
+
+    PP-OCRv5 Korean
+    EasyOCR ko/en
+
+"installed": true가 표시되면 OCR 패키지가 정상 설치된 것입니다.
+
+
+12. 카메라 사용
+-------------------------------------------------------------------------------
+
+1) 브라우저에서 http://127.0.0.1:5000 접속
+2) 카메라 시작 버튼 선택
+3) 브라우저 카메라 권한 요청에서 허용 선택
+4) 명함을 화면 가이드 안에 크게 맞춤
+5) 초점을 맞춘 뒤 촬영하고 인식 선택
+
+카메라가 없거나 권한을 허용할 수 없으면 이미지 선택 버튼으로 JPG, PNG,
+WEBP 또는 BMP 명함 사진을 올릴 수 있습니다.
+
+
+13. 고객정보와 촬영 이미지 저장 위치
+-------------------------------------------------------------------------------
+
+고객정보 SQLite DB:
+
+    C:\CardFlowOCR\python2team_Project\instance\business_cards.db
+
+명함 이미지:
+
+    C:\CardFlowOCR\python2team_Project\instance\scans\
+
+백업할 때는 프로그램을 종료한 후 instance 폴더 전체를 복사합니다.
+고객 개인정보가 포함되므로 이 폴더를 이메일, 공개 GitHub 등에 올리지 않습니다.
+
+
+14. 다른 PC에서도 각각 사용하는 방법 (권장)
+-------------------------------------------------------------------------------
+
+각 사용자의 PC에 프로젝트를 복사하고 3~10번 설치 과정을 각각 진행합니다.
+각 PC의 고객 DB는 서로 분리됩니다.
+
+배포 ZIP 파일에는 일반적으로 다음 항목을 제외합니다.
+
+    .venv\
+    __pycache__\
+    .pytest_cache\
+    instance\          (기존 고객정보를 공유하지 않을 경우)
+
+
+15. 한 대의 PC 서버를 같은 네트워크에서 공유하는 방법 (선택)
+-------------------------------------------------------------------------------
+
+주의: 현재 프로그램에는 사용자 로그인/권한 기능이 없습니다.
+인터넷에 공개하지 말고 신뢰할 수 있는 사내 또는 교육용 내부망에서만 사용합니다.
+
+서버 PC에서 다음 명령으로 실행합니다.
+
+    .\.venv\Scripts\waitress-serve.exe --listen=0.0.0.0:5000 app:app
+
+서버 PC의 IPv4 주소 확인:
+
+    ipconfig
+
+예를 들어 서버 PC 주소가 192.168.0.20이면 다른 PC에서 다음으로 접속합니다.
+
+    http://192.168.0.20:5000
+
+접속되지 않으면 다음 항목을 확인합니다.
+
+- 두 PC가 같은 공유기/내부망에 연결되어 있는지 확인
+- Windows Defender 방화벽에서 TCP 5000 인바운드 허용
+- 네트워크 프로필이 공용이 아닌 개인/도메인 네트워크인지 확인
+
+개인정보 보호를 위해 포트포워딩으로 외부 인터넷에 공개하지 않습니다.
+
+
+16. 자주 발생하는 문제와 해결 방법
+-------------------------------------------------------------------------------
+
+[문제 1] py 또는 Python을 찾을 수 없음
+
+- Python 3.11 64비트를 다시 설치합니다.
+- 설치 시 Add python.exe to PATH를 체크합니다.
+- PowerShell을 모두 닫았다가 새로 실행합니다.
+
+
+[문제 2] Activate.ps1 스크립트를 실행할 수 없음
+
+가상환경 활성화를 하지 말고 다음처럼 직접 실행합니다.
+
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    .\.venv\Scripts\python.exe app.py
+
+
+[문제 3] pip 명령을 찾을 수 없음
+
+pip 대신 다음 형식을 사용합니다.
+
+    .\.venv\Scripts\python.exe -m pip --version
+
+
+[문제 4] PaddlePaddle 설치 오류
+
+먼저 공식 CPU 패키지를 직접 설치한 뒤 requirements를 다시 설치합니다.
+
+    .\.venv\Scripts\python.exe -m pip install paddlepaddle==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+
+[문제 5] OpenCV cv2.pyd 액세스 거부
+
+- 실행 중인 app.py 서버와 모든 Python 프로그램을 종료합니다.
+- 다시 requirements 설치 명령을 실행합니다.
+- 서버가 실행 중이면 Windows가 cv2.pyd 파일을 잠글 수 있습니다.
+
+
+[문제 6] EasyOCR 또는 PaddleOCR가 설치되지 않았다고 표시됨
+
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    .\.venv\Scripts\python.exe -m pip check
+
+
+[문제 7] 최초 OCR이 느림
+
+정상입니다. 최초 실행에는 딥러닝 모델 다운로드와 메모리 초기화가 포함됩니다.
+다운로드 중에는 인터넷 연결을 끊지 않습니다.
+
+
+[문제 8] 카메라가 열리지 않음
+
+- Windows 설정 > 개인정보 및 보안 > 카메라에서 카메라 접근을 허용합니다.
+- Chrome/Edge 주소창의 카메라 권한을 허용합니다.
+- Zoom, Teams 등 카메라를 사용 중인 프로그램을 종료합니다.
+- 이미지 업로드 방식으로도 사용할 수 있습니다.
+
+
+[문제 9] 5000 포트를 이미 사용 중이라고 표시됨
+
+포트 사용 프로세스 확인:
+
+    netstat -ano | findstr :5000
+
+기존에 실행한 CardFlow OCR PowerShell 창이 있으면 Ctrl + C로 종료한 뒤
+다시 실행합니다.
+
+
+17. 설치 확인용 명령 모음
+-------------------------------------------------------------------------------
+
+Python 확인:
+
+    .\.venv\Scripts\python.exe --version
+
+패키지 충돌 확인:
+
+    .\.venv\Scripts\python.exe -m pip check
+
+OCR 패키지 확인:
+
+    .\.venv\Scripts\python.exe -c "import paddle, paddleocr, easyocr, cv2; print('OCR packages OK')"
+
+서버 실행:
+
+    .\.venv\Scripts\python.exe app.py
+
+브라우저 주소:
+
+    http://127.0.0.1:5000
+
+OCR 상태 주소:
+
+    http://127.0.0.1:5000/api/health
+
+
+18. 공식 다운로드 및 문서 주소
+-------------------------------------------------------------------------------
+
+Python 3.11.9:
+https://www.python.org/downloads/release/python-3119/
+
+PaddlePaddle Windows CPU 설치:
+https://www.paddlepaddle.org.cn/documentation/docs/zh/install/pip/windows-pip_en.html
+
+PaddleOCR 설치:
+https://www.paddleocr.ai/main/en/version3.x/installation.html
+
+PP-OCRv5 한국어 모델:
+https://www.paddleocr.ai/main/en/version3.x/algorithm/PP-OCRv5/PP-OCRv5_multi_languages.html
+
+
+===============================================================================
+요약: 가장 중요한 설치 명령
+===============================================================================
+
+    cd C:\CardFlowOCR\python2team_Project
+    py -3.11 -m venv .venv
+    .\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    .\.venv\Scripts\python.exe app.py
+
+브라우저:
+
+    http://127.0.0.1:5000
+
+===============================================================================
