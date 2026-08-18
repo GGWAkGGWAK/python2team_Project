@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from .image_processing import (
     detect_and_rectify,
     encode_jpeg,
     image_metadata,
+    resize_for_ocr,
 )
 from .ocr_engine import OCRUnavailableError, engine
 from .parser import parse_business_card
@@ -138,6 +140,7 @@ def health():
                 "installed": engine.installed(),
                 "languages": ["ko", "en"],
                 "available_engines": engine.available_engines(),
+                **engine.runtime_status(),
             },
             "contacts": _database().count_contacts(),
         }
@@ -146,6 +149,7 @@ def health():
 
 @web.post("/api/ocr")
 def recognize_card():
+    started = time.perf_counter()
     upload = request.files.get("image")
     if upload is None or not upload.filename:
         return _error("촬영하거나 선택한 이미지가 필요합니다.")
@@ -155,11 +159,23 @@ def recognize_card():
 
     try:
         source = decode_image(upload.read())
+        decoded_at = time.perf_counter()
         card = detect_and_rectify(source)
-        lines = engine.recognize(card.image)
+        rectified_at = time.perf_counter()
+        ocr_image = resize_for_ocr(
+            card.image,
+            max_long_edge=int(current_app.config["OCR_MAX_LONG_EDGE"]),
+        )
+        lines = engine.recognize(ocr_image)
+        recognized_at = time.perf_counter()
     except InvalidImageError as exc:
         return _error(str(exc))
     except OCRUnavailableError as exc:
+        current_app.logger.warning(
+            "OCR 실패: %.0fms - %s",
+            (time.perf_counter() - started) * 1000,
+            exc,
+        )
         return _error(str(exc), 503, "OCR_UNAVAILABLE")
 
     parsed = parse_business_card(lines)
@@ -180,6 +196,28 @@ def recognize_card():
     (Path(current_app.config["SCAN_DIR"]) / image_token).write_bytes(
         encode_jpeg(card.image, quality=92)
     )
+    finished_at = time.perf_counter()
+    timings = {
+        "decode": round((decoded_at - started) * 1000),
+        "rectify": round((rectified_at - decoded_at) * 1000),
+        "ocr": round((recognized_at - rectified_at) * 1000),
+        "parse_and_save": round((finished_at - recognized_at) * 1000),
+        "total": round((finished_at - started) * 1000),
+    }
+    current_app.logger.info(
+        "OCR 완료: total=%dms decode=%dms rectify=%dms ocr=%dms save=%dms, "
+        "source=%dx%d input=%dx%d lines=%d",
+        timings["total"],
+        timings["decode"],
+        timings["rectify"],
+        timings["ocr"],
+        timings["parse_and_save"],
+        source.shape[1],
+        source.shape[0],
+        ocr_image.shape[1],
+        ocr_image.shape[0],
+        len(lines),
+    )
 
     return jsonify(
         {
@@ -192,6 +230,7 @@ def recognize_card():
                 ],
                 "image_token": image_token,
                 "preview": as_data_url(card.image),
+                "processing_ms": timings,
                 "detection": {
                     "card_detected": card.detected,
                     "corners": card.corners,

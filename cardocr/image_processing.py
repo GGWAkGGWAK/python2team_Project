@@ -156,6 +156,22 @@ def detect_and_rectify(image: np.ndarray) -> CardImage:
     )
 
 
+def resize_for_ocr(image: np.ndarray, max_long_edge: int = 2000) -> np.ndarray:
+    """Cap very large inputs while preserving the aspect ratio for faster OCR."""
+    if max_long_edge < 800:
+        raise ValueError("OCR 최대 해상도는 800px 이상이어야 합니다.")
+    height, width = image.shape[:2]
+    long_edge = max(height, width)
+    if long_edge <= max_long_edge:
+        return image
+    ratio = max_long_edge / long_edge
+    return cv2.resize(
+        image,
+        (max(1, int(round(width * ratio))), max(1, int(round(height * ratio)))),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
 def prepare_for_ocr(image: np.ndarray) -> np.ndarray:
     if image.shape[1] < 1200:
         ratio = 1200 / image.shape[1]
