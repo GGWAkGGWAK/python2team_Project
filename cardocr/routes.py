@@ -21,6 +21,7 @@ from flask import (
 )
 
 from .database import Database
+from .ai_field_classifier import field_classifier
 from .image_processing import (
     InvalidImageError,
     as_data_url,
@@ -146,6 +147,7 @@ def health():
                 "available_engines": engine.available_engines(),
                 **engine.runtime_status(),
             },
+            "field_classifier": field_classifier.status(),
             "contacts": _database().count_contacts(),
         }
     )
@@ -183,6 +185,7 @@ def recognize_card():
         return _error(str(exc), 503, "OCR_UNAVAILABLE")
 
     parsed = parse_business_card(lines)
+    parsed, classifier_info = field_classifier.enhance(ocr_image, lines, parsed)
     uncertain_mixed_text = any(
         line.confidence < 0.45
         and bool(re.search(r"[가-힣]", line.text))
@@ -228,6 +231,7 @@ def recognize_card():
             "ok": True,
             "data": {
                 "fields": parsed.to_dict(),
+                "field_classifier": classifier_info,
                 "ocr_lines": [
                     {"text": line.text, "confidence": line.confidence, "box": line.box}
                     for line in lines

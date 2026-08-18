@@ -4,11 +4,19 @@
 
 처음 설치하거나 다른 PC에 배포할 때는 `설치_및_실행_가이드.txt`를 먼저 확인하세요.
 
+## 추가 매뉴얼
+
+- [WSL2 기반 LayoutXLM 학습 매뉴얼](docs/LAYOUTXLM_WSL_TRAINING_MANUAL.md)
+- [Git LFS 모델 업로드·다운로드 매뉴얼](docs/GIT_LFS_MODEL_MANUAL.md)
+
+LayoutXLM 학습은 Detectron2 호환성을 위해 WSL2 Ubuntu 환경을 권장합니다. 학습된 `model.safetensors`는 약 1.4GB이므로 GitHub에 올릴 때 일반 Git이 아니라 Git LFS를 사용해야 합니다.
+
 ## 주요 기능
 
 - 브라우저 카메라 촬영 및 JPG/PNG/WEBP/BMP 업로드(파일 선택·드래그앤드롭·즉시 미리보기)
 - OpenCV 외곽선 검출, 기울기·원근 보정, 밝기·초점 안내
 - 경량 PP-OCRv5 mobile 한국어·영어 딥러닝 인식과 EasyOCR 자동 보완
+- 선택형 LayoutXLM 문서 AI로 이름·회사·직책·주소 필드 보완(학습 모델 필요)
 - 앱 시작 후 OCR 모델 백그라운드 준비 및 고해상도 입력 자동 최적화
 - 이름, 회사, 직책, 전화번호 1·2, 이메일, 웹사이트, 주소 자동 분류
 - 인식 원문 확인 및 수정 후 재분류
@@ -37,6 +45,18 @@ python app.py
 브라우저에서 <http://127.0.0.1:5000>을 엽니다. 브라우저가 카메라 권한을 물으면 허용하세요. 카메라 권한 없이도 이미지 업로드로 사용할 수 있습니다.
 
 > 앱 실행 직후 경량 PP-OCRv5 mobile 모델을 백그라운드에서 준비합니다. 처음 한 번은 모델을 사용자 폴더에 내려받기 때문에 인터넷 연결이 필요하며 상단 상태가 `OCR 준비됨`으로 바뀐 뒤 인식하면 대기시간이 줄어듭니다. 이후에는 내려받은 모델을 재사용합니다. PP-OCRv5 결과가 부족하거나 실행되지 않으면 EasyOCR가 자동으로 보완합니다.
+
+## 선택형 LayoutXLM 필드 분류
+
+기본 설치에서는 기존 규칙 기반 분류가 사용됩니다. 명함 데이터로 미세조정한 LayoutXLM 모델이 있으면 OCR 텍스트와 위치를 함께 분석해 이름·회사·직책·주소를 보완하고, 전화·팩스·이메일은 기존 정규식으로 검증합니다.
+
+```powershell
+pip install -r requirements-ai.txt
+$env:CARDOCR_LAYOUT_MODEL_DIR = "$PWD\models\business-card-layoutxlm"
+python app.py
+```
+
+학습 데이터 형식과 학습 명령은 `training/README.md`를 확인하세요. 학습 모델이 없거나 실행에 실패해도 애플리케이션은 규칙 기반 방식으로 계속 동작합니다.
 
 ## OpenCV 카메라 창으로 촬영
 

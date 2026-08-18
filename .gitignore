@@ -179,3 +179,13 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# Fine-tuned document-AI model: publish only the final LayoutXLM package.
+# Intermediate checkpoints contain repeated multi-GB weights and optimizer state.
+models/*
+!models/business-card-layoutxlm/
+models/business-card-layoutxlm/checkpoint-*/
+
+# The checked-in training set contains synthetic cards only. Do not replace
+# these files with real business cards or personal information.
+training/images/*
+!training/images/synthetic_card_*.png

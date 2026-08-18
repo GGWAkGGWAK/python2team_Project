@@ -27,6 +27,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         MAX_CONTENT_LENGTH=15 * 1024 * 1024,
         OCR_MAX_LONG_EDGE=2000,
         OCR_WARMUP=True,
+        AI_FIELD_CLASSIFIER="layoutxlm-hybrid",
     )
 
     if test_config:
