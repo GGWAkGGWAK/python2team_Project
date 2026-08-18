@@ -1,7 +1,12 @@
 import cv2
 import numpy as np
 
-from cardocr.image_processing import decode_image, detect_and_rectify, encode_jpeg
+from cardocr.image_processing import (
+    decode_image,
+    detect_and_rectify,
+    encode_jpeg,
+    resize_for_ocr,
+)
 
 
 def test_detect_and_rectify_synthetic_card():
@@ -22,3 +27,12 @@ def test_jpeg_round_trip():
     source = np.full((240, 400, 3), 180, dtype=np.uint8)
     decoded = decode_image(encode_jpeg(source))
     assert decoded.shape == source.shape
+
+
+def test_resize_for_ocr_caps_large_image_and_preserves_aspect_ratio():
+    source = np.zeros((2400, 4000, 3), dtype=np.uint8)
+
+    resized = resize_for_ocr(source, max_long_edge=2000)
+
+    assert resized.shape == (1200, 2000, 3)
+    assert resize_for_ocr(resized, max_long_edge=2000) is resized

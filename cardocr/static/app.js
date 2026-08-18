@@ -3,7 +3,10 @@
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
-  const state = { stream: null, contacts: [], searchTimer: null };
+  const MAX_IMAGE_SIZE = 15 * 1024 * 1024;
+  const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/bmp"]);
+  const ALLOWED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "bmp"]);
+  const state = { stream: null, contacts: [], searchTimer: null, previewUrl: null };
 
   const elements = {
     camera: $("#camera"),
@@ -13,6 +16,7 @@
     canvas: $("#capture-canvas"),
     preview: $("#captured-preview"),
     upload: $("#image-upload"),
+    uploadDropzone: $("#upload-dropzone"),
     processing: $("#processing"),
     detectionNote: $("#detection-note"),
     form: $("#contact-form"),
@@ -59,10 +63,21 @@
   async function checkHealth() {
     try {
       const result = await api("/api/health");
-      elements.ocrStatus.classList.remove("checking");
+      elements.ocrStatus.classList.remove("checking", "ready", "error");
       if (result.ocr.installed) {
-        elements.ocrStatus.classList.add("ready");
-        elements.ocrStatus.lastChild.textContent = "OCR 준비됨";
+        if (result.ocr.warming) {
+          elements.ocrStatus.classList.add("checking");
+          elements.ocrStatus.lastChild.textContent = "OCR 모델 준비 중";
+          window.setTimeout(checkHealth, 2000);
+        } else if (result.ocr.error && !result.ocr.ready) {
+          elements.ocrStatus.classList.add("error");
+          elements.ocrStatus.lastChild.textContent = "OCR 준비 실패";
+          elements.ocrStatus.title = result.ocr.error;
+        } else {
+          elements.ocrStatus.classList.add("ready");
+          elements.ocrStatus.lastChild.textContent = "OCR 준비됨";
+          elements.ocrStatus.title = "";
+        }
       } else {
         elements.ocrStatus.classList.add("error");
         elements.ocrStatus.lastChild.textContent = "OCR 설치 필요";
@@ -134,9 +149,49 @@
     }
   }
 
+  function validateImageFile(file) {
+    if (!(file instanceof File)) return "업로드할 이미지 파일을 선택해 주세요.";
+    if (file.size <= 0) return "내용이 없는 파일은 업로드할 수 없습니다.";
+    if (file.size > MAX_IMAGE_SIZE) return "15MB 이하의 이미지를 선택해 주세요.";
+    const extension = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "";
+    if ((file.type && !ALLOWED_IMAGE_TYPES.has(file.type)) || (extension && !ALLOWED_IMAGE_EXTENSIONS.has(extension))) {
+      return "JPG, PNG, WEBP, BMP 이미지 파일만 업로드할 수 있습니다.";
+    }
+    if (!file.type && !extension) return "이미지 파일 형식을 확인할 수 없습니다.";
+    return "";
+  }
+
+  function clearLocalPreviewUrl() {
+    if (!state.previewUrl) return;
+    URL.revokeObjectURL(state.previewUrl);
+    state.previewUrl = null;
+  }
+
+  function showLocalPreview(file) {
+    clearLocalPreviewUrl();
+    state.previewUrl = URL.createObjectURL(file);
+    elements.preview.src = state.previewUrl;
+    elements.cameraStage.className = "camera-stage preview-active upload-preview";
+  }
+
+  async function uploadImage(file) {
+    const problem = validateImageFile(file);
+    if (problem) {
+      toast(problem, "error");
+      elements.upload.value = "";
+      return;
+    }
+    stopCamera();
+    showLocalPreview(file);
+    elements.detectionNote.hidden = false;
+    elements.detectionNote.textContent = `${file.name} 업로드 완료 · OCR 분석을 시작합니다.`;
+    await processImage(file);
+  }
+
   async function processImage(file) {
-    if (file.size > 15 * 1024 * 1024) {
-      toast("15MB 이하의 이미지를 선택해 주세요.", "error");
+    const problem = validateImageFile(file);
+    if (problem) {
+      toast(problem, "error");
       return;
     }
     const formData = new FormData();
@@ -146,6 +201,7 @@
       const result = await api("/api/ocr", { method: "POST", body: formData });
       const data = result.data;
       stopCamera();
+      clearLocalPreviewUrl();
       elements.preview.src = data.preview;
       elements.cameraStage.className = "camera-stage preview-active";
       elements.imageToken.value = data.image_token;
@@ -156,6 +212,10 @@
       elements.detectionNote.textContent = notes.join(" ");
       toast(`${data.ocr_lines.length}개 텍스트 영역을 인식했습니다.`);
     } catch (error) {
+      if (state.previewUrl) {
+        elements.detectionNote.hidden = false;
+        elements.detectionNote.textContent = `이미지를 불러왔지만 OCR 처리에 실패했습니다: ${error.message}`;
+      }
       toast(error.message, "error", 6500);
     } finally {
       elements.processing.classList.remove("active");
@@ -201,6 +261,7 @@
     elements.form.reset();
     elements.contactId.value = "";
     elements.imageToken.value = "";
+    clearLocalPreviewUrl();
     elements.preview.removeAttribute("src");
     if (!state.stream) elements.cameraStage.className = "camera-stage";
     elements.detectionNote.hidden = true;
@@ -295,7 +356,28 @@
   $$(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
   elements.cameraToggle.addEventListener("click", () => state.stream ? stopCamera() : startCamera());
   elements.captureButton.addEventListener("click", captureFrame);
-  elements.upload.addEventListener("change", () => elements.upload.files[0] && processImage(elements.upload.files[0]));
+  elements.upload.addEventListener("change", () => elements.upload.files[0] && uploadImage(elements.upload.files[0]));
+  elements.uploadDropzone.addEventListener("click", () => elements.upload.click());
+  elements.uploadDropzone.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      elements.upload.click();
+    }
+  });
+  elements.cameraStage.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    elements.cameraStage.classList.add("upload-dragging");
+  });
+  elements.cameraStage.addEventListener("dragleave", (event) => {
+    if (!elements.cameraStage.contains(event.relatedTarget)) elements.cameraStage.classList.remove("upload-dragging");
+  });
+  elements.cameraStage.addEventListener("drop", (event) => {
+    event.preventDefault();
+    elements.cameraStage.classList.remove("upload-dragging");
+    const file = event.dataTransfer?.files?.[0];
+    if (file) uploadImage(file);
+  });
   elements.form.addEventListener("submit", saveContact);
   $("#form-reset").addEventListener("click", resetForm);
   $("#reparse-button").addEventListener("click", reparseText);

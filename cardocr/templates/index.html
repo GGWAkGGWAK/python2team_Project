@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>CardFlow OCR · 명함 고객관리</title>
-    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v5') }}">
-    <script defer src="{{ url_for('web.frontend_script', v='frontend-v5') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v6') }}">
+    <script defer src="{{ url_for('web.frontend_script', v='frontend-v6') }}"></script>
   </head>
   <body>
     <header class="topbar">
@@ -53,10 +53,11 @@
             <div id="camera-stage" class="camera-stage">
               <video id="camera" autoplay playsinline muted></video>
               <img id="captured-preview" alt="촬영 또는 보정된 명함 미리보기">
-              <div class="camera-placeholder">
-                <span class="camera-symbol" aria-hidden="true"></span>
-                <strong>명함을 촬영하거나 이미지를 선택하세요</strong>
-                <span>JPG, PNG, WEBP, BMP 파일을 지원합니다.</span>
+              <div id="upload-dropzone" class="camera-placeholder upload-dropzone" role="button" tabindex="0" aria-controls="image-upload" aria-label="명함 이미지 업로드">
+                <span class="upload-symbol" aria-hidden="true">↑</span>
+                <strong>명함 이미지를 끌어놓거나 클릭해 업로드하세요</strong>
+                <span>JPG, PNG, WEBP, BMP · 최대 15MB</span>
+                <small>카메라 촬영은 아래의 ‘카메라 시작’을 이용하세요.</small>
               </div>
               <div class="capture-guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
               <div id="processing" class="processing" aria-live="polite">
@@ -68,7 +69,7 @@
             <div class="capture-actions">
               <button id="camera-toggle" class="button secondary" type="button">카메라 시작</button>
               <button id="capture-button" class="button primary" type="button" disabled>촬영하고 인식</button>
-              <label class="button outline" for="image-upload">이미지 선택</label>
+              <label class="button outline upload-button" for="image-upload">이미지 업로드</label>
               <input id="image-upload" type="file" accept="image/jpeg,image/png,image/webp,image/bmp" hidden>
             </div>
             <div id="detection-note" class="detection-note" hidden></div>
