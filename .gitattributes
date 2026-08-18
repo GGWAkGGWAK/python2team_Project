@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+# Trained LayoutXLM weights exceed GitHub's normal 100 MB file limit.
+models/business-card-layoutxlm/model.safetensors filter=lfs diff=lfs merge=lfs -text

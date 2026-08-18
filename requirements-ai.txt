@@ -1,0 +1,8 @@
+# Optional dependencies for LayoutXLM field classification and fine-tuning.
+# Install only after training a business-card model; the base app works without these.
+torch>=2.2,<3
+transformers>=4.45,<5
+datasets>=3,<5
+accelerate>=1,<2
+sentencepiece>=0.2,<1
+Pillow>=10,<12
