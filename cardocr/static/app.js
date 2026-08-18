@@ -259,12 +259,27 @@
 
   function resetForm() {
     elements.form.reset();
+    elements.form.querySelectorAll("input, textarea").forEach((field) => {
+      if (field.type === "checkbox" || field.type === "radio") field.checked = false;
+      else field.value = "";
+    });
     elements.contactId.value = "";
     elements.imageToken.value = "";
+    elements.rawText.value = "";
+    elements.upload.value = "";
     clearLocalPreviewUrl();
+    elements.preview.src = "";
     elements.preview.removeAttribute("src");
-    if (!state.stream) elements.cameraStage.className = "camera-stage";
+    elements.cameraStage.className = state.stream
+      ? "camera-stage camera-active"
+      : "camera-stage";
+    elements.processing.classList.remove("active");
     elements.detectionNote.hidden = true;
+    elements.detectionNote.textContent = "";
+    const rawDetails = elements.rawText.closest("details");
+    if (rawDetails) rawDetails.open = false;
+    elements.canvas.width = 0;
+    elements.canvas.height = 0;
     $("#save-button").lastChild.textContent = " 고객정보 저장";
   }
 
@@ -287,7 +302,7 @@
       <tr>
         <td><div class="person-cell"><span class="avatar">${initials(contact.name)}</span><span>${escapeHtml(contact.name || "이름 없음")}</span></div></td>
         <td>${escapeHtml(contact.company || "-")}<span class="subtle">${escapeHtml(contact.job_title || "")}</span></td>
-        <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span></td>
+        <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span><span class="subtle">${contact.fax ? `팩스 ${escapeHtml(contact.fax)}` : ""}</span></td>
         <td>${escapeHtml(contact.email || "-")}</td>
         <td>${escapeHtml((contact.created_at || "").slice(0, 10))}</td>
         <td><div class="row-actions">

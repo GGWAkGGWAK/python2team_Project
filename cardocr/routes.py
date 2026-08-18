@@ -44,6 +44,7 @@ EXPORT_HEADERS = {
     "job_title": "직책",
     "phone": "전화번호 1",
     "phone2": "전화번호 2",
+    "fax": "팩스",
     "email": "이메일",
     "website": "웹사이트",
     "address": "주소",
@@ -69,7 +70,10 @@ def _payload() -> dict[str, Any]:
 
 
 def _validate_contact(data: dict[str, Any]) -> str | None:
-    values = [str(data.get(field, "") or "").strip() for field in ("name", "company", "phone", "email")]
+    values = [
+        str(data.get(field, "") or "").strip()
+        for field in ("name", "company", "phone", "phone2", "fax", "email")
+    ]
     if not any(values):
         return "이름, 회사, 전화번호, 이메일 중 하나 이상을 입력해 주세요."
     email = str(data.get("email", "") or "").strip()

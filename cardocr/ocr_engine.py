@@ -208,8 +208,6 @@ class PaddleOCREngine:
                     # generic CPU path.
                     try:
                         self._reader = PaddleOCR(
-                            lang="korean",
-                            ocr_version="PP-OCRv5",
                             text_detection_model_name="PP-OCRv5_mobile_det",
                             text_recognition_model_name="korean_PP-OCRv5_mobile_rec",
                             device="cpu",

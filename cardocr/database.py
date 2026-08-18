@@ -13,6 +13,7 @@ CONTACT_FIELDS = (
     "job_title",
     "phone",
     "phone2",
+    "fax",
     "email",
     "website",
     "address",
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     job_title TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '',
     phone2 TEXT NOT NULL DEFAULT '',
+    fax TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '',
     website TEXT NOT NULL DEFAULT '',
     address TEXT NOT NULL DEFAULT '',
@@ -69,8 +71,15 @@ class Database:
                 connection.execute(
                     "ALTER TABLE contacts ADD COLUMN phone2 TEXT NOT NULL DEFAULT ''"
                 )
+            if "fax" not in columns:
+                connection.execute(
+                    "ALTER TABLE contacts ADD COLUMN fax TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_contacts_phone2 ON contacts(phone2)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_contacts_fax ON contacts(fax)"
             )
 
     @staticmethod
@@ -113,9 +122,9 @@ class Database:
             needle = f"%{query}%"
             sql += (
                 " WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? "
-                "OR phone2 LIKE ? OR email LIKE ?"
+                "OR phone2 LIKE ? OR fax LIKE ? OR email LIKE ?"
             )
-            params = (needle, needle, needle, needle, needle)
+            params = (needle, needle, needle, needle, needle, needle)
         sql += " ORDER BY updated_at DESC, id DESC"
         with self.connect() as connection:
             rows = connection.execute(sql, tuple(params)).fetchall()

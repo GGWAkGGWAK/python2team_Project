@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>CardFlow OCR · 명함 고객관리</title>
-    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v6') }}">
-    <script defer src="{{ url_for('web.frontend_script', v='frontend-v6') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v8') }}">
+    <script defer src="{{ url_for('web.frontend_script', v='frontend-v8') }}"></script>
   </head>
   <body>
     <header class="topbar">
@@ -94,6 +94,7 @@
                 <label><span>직책</span><input name="job_title" placeholder="영업팀 과장"></label>
                 <label><span>전화번호 1</span><input name="phone" inputmode="tel" placeholder="010-1234-5678"></label>
                 <label><span>전화번호 2</span><input name="phone2" inputmode="tel" placeholder="053-123-4567"></label>
+                <label><span>팩스</span><input name="fax" inputmode="tel" placeholder="053-123-4568"></label>
                 <label><span>이메일</span><input name="email" type="email" placeholder="name@company.com"></label>
                 <label class="wide"><span>웹사이트</span><input name="website" placeholder="www.company.com"></label>
                 <label class="wide"><span>주소</span><input name="address" placeholder="서울특별시 ..."></label>
