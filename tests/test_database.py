@@ -10,6 +10,7 @@ def test_contact_crud_and_search(tmp_path):
             "company": "카드플로우",
             "phone": "010-1234-5678",
             "phone2": "053-123-4567",
+            "fax": "053-123-4568",
             "email": "hong@example.com",
         }
     )
@@ -19,6 +20,7 @@ def test_contact_crud_and_search(tmp_path):
     assert database.list_contacts("카드")[0]["name"] == "홍길동"
     assert database.list_contacts("1234")[0]["company"] == "카드플로우"
     assert database.list_contacts("4567")[0]["phone2"] == "053-123-4567"
+    assert database.list_contacts("4568")[0]["fax"] == "053-123-4568"
 
     updated = database.update_contact(created["id"], {**created, "job_title": "팀장"})
     assert updated["job_title"] == "팀장"
@@ -38,7 +40,7 @@ def test_duplicate_detection_normalizes_phone_and_email(tmp_path):
     assert database.find_duplicates(phone="01022223333", exclude_id=first["id"]) == []
 
 
-def test_existing_database_is_migrated_with_second_phone(tmp_path):
+def test_existing_database_is_migrated_with_second_phone_and_fax(tmp_path):
     path = tmp_path / "legacy.db"
     import sqlite3
 
@@ -60,3 +62,4 @@ def test_existing_database_is_migrated_with_second_phone(tmp_path):
     with database.connect() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(contacts)")}
     assert "phone2" in columns
+    assert "fax" in columns

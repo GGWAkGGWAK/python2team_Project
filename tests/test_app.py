@@ -26,8 +26,8 @@ def test_home_health_and_contact_crud(tmp_path):
     assert b'id="upload-dropzone"' in home.data
     assert b"image/jpeg,image/png,image/webp,image/bmp" in home.data
     assert client.get("/api/health").get_json()["service"] == "cardocr"
-    assert client.get("/assets/styles.css?v=frontend-v7").mimetype == "text/css"
-    assert client.get("/assets/app.js?v=frontend-v7").mimetype == "text/javascript"
+    assert client.get("/assets/styles.css?v=frontend-v8").mimetype == "text/css"
+    assert client.get("/assets/app.js?v=frontend-v8").mimetype == "text/javascript"
 
     response = client.post(
         "/api/contacts",
@@ -50,7 +50,12 @@ def test_home_health_and_contact_crud(tmp_path):
 
 def test_duplicate_response_and_exports(tmp_path):
     client = make_app(tmp_path).test_client()
-    payload = {"name": "박지우", "phone": "010-9999-8888", "email": "jiwoo@example.com"}
+    payload = {
+        "name": "박지우",
+        "phone": "010-9999-8888",
+        "fax": "02-9999-7777",
+        "email": "jiwoo@example.com",
+    }
     assert client.post("/api/contacts", json=payload).status_code == 201
 
     duplicate = client.post("/api/contacts", json={**payload, "name": "다른 이름"})
@@ -60,6 +65,7 @@ def test_duplicate_response_and_exports(tmp_path):
     csv_response = client.get("/api/export?format=csv")
     assert csv_response.status_code == 200
     assert "박지우" in csv_response.data.decode("utf-8-sig")
+    assert "02-9999-7777" in csv_response.data.decode("utf-8-sig")
 
     xlsx_response = client.get("/api/export?format=xlsx")
     assert xlsx_response.status_code == 200

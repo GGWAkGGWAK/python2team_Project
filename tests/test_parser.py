@@ -70,6 +70,7 @@ def test_parse_noisy_daegu_business_card_ocr():
     assert parsed.job_title == "선임 / AI인재양성팀"
     assert parsed.phone == "010-6616-2882"
     assert parsed.phone2 == "053-215-3606"
+    assert parsed.fax == "053-655-5635"
     assert parsed.email == "reentry@dip.or.kr"
     assert parsed.website == "www.dip.or.kr"
     assert "대구광역시 수성구 알파시티1로 170" in parsed.address
@@ -103,8 +104,65 @@ def test_two_phones_do_not_fill_website_and_fax_is_ignored():
 
     assert parsed.phone == "010-6616-2882"
     assert parsed.phone2 == "053-215-3606"
+    assert parsed.fax == "053-655-5635"
     assert parsed.website == "www.dip.or.kr"
     assert "655-5635" not in parsed.phone2
+
+
+def test_compact_and_wrapped_contact_labels_are_classified():
+    parsed = parse_business_card(
+        [
+            "T(",
+            "053-215-3606",
+            "F053-655-5635",
+            "M010-6616-2882",
+            "E reentry@dip.or.kr",
+        ]
+    )
+
+    assert parsed.phone == "010-6616-2882"
+    assert parsed.phone2 == "053-215-3606"
+    assert parsed.fax == "053-655-5635"
+    assert parsed.email == "reentry@dip.or.kr"
+    assert "655-5635" not in {parsed.phone, parsed.phone2}
+
+
+def test_long_contact_labels_and_values_on_next_line_are_classified():
+    parsed = parse_business_card(
+        [
+            "Telephone",
+            "053.215.3606",
+            "Fax: 053-655-5635",
+            "Mobile",
+            "010 6616 2882",
+            "Email",
+            "reentry@dip.or.kr",
+        ]
+    )
+
+    assert parsed.phone == "010-6616-2882"
+    assert parsed.phone2 == "053-215-3606"
+    assert parsed.fax == "053-655-5635"
+    assert parsed.email == "reentry@dip.or.kr"
+    assert "655-5635" not in {parsed.phone, parsed.phone2}
+
+
+def test_korean_contact_labels_are_classified_and_fax_is_preserved():
+    parsed = parse_business_card(
+        [
+            "대표전화",
+            "053-215-3606",
+            "팩스 053-655-5635",
+            "휴대전화: 010-6616-2882",
+            "이메일",
+            "reentry@dip.or.kr",
+        ]
+    )
+
+    assert parsed.phone == "010-6616-2882"
+    assert parsed.phone2 == "053-215-3606"
+    assert parsed.fax == "053-655-5635"
+    assert parsed.email == "reentry@dip.or.kr"
 
 
 def test_larger_korean_company_name_wins_over_small_english_translation():

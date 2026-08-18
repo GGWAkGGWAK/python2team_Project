@@ -302,7 +302,7 @@
       <tr>
         <td><div class="person-cell"><span class="avatar">${initials(contact.name)}</span><span>${escapeHtml(contact.name || "이름 없음")}</span></div></td>
         <td>${escapeHtml(contact.company || "-")}<span class="subtle">${escapeHtml(contact.job_title || "")}</span></td>
-        <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span></td>
+        <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span><span class="subtle">${contact.fax ? `팩스 ${escapeHtml(contact.fax)}` : ""}</span></td>
         <td>${escapeHtml(contact.email || "-")}</td>
         <td>${escapeHtml((contact.created_at || "").slice(0, 10))}</td>
         <td><div class="row-actions">

@@ -36,7 +36,9 @@ ADDRESS_MARKERS = (
     "로", "길", "동", "번지", "층", "빌딩",
 )
 LABEL_RE = re.compile(
-    r"^(?:tel|전화|mobile|mob|휴대폰|fax|e-?mail|web|website|주소|address|[TEMF])\s*[:.]?\s*",
+    r"^(?:telephone|tel|대표전화|전화번호|전화|mobile|mob|휴대전화|휴대폰|핸드폰|모바일|"
+    r"fax|facsimile|팩시밀리|팩스|e-?mail|이메일|전자우편|web|website|주소|address|[TEMF])"
+    r"\s*[:.()\-]?\s*",
     re.IGNORECASE,
 )
 POSTAL_ADDRESS_RE = re.compile(r"(?:^|\s)\d{5}\s*[|I1]?\s*.*(?:시|도|구|군|로|길|동)")
@@ -50,6 +52,7 @@ class ParsedCard:
     job_title: str = ""
     phone: str = ""
     phone2: str = ""
+    fax: str = ""
     email: str = ""
     website: str = ""
     address: str = ""
@@ -94,6 +97,49 @@ def _normalize_phone(value: str) -> str:
     if len(digits) == 11:
         return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
     return value.strip()
+
+
+def _split_contact_label(line: str) -> tuple[str, str]:
+    """Return a normalized contact label and the value printed beside it."""
+    long_label = re.match(
+        r"^(telephone|tel|대표전화|전화번호|전화|mobile|mob|휴대전화|휴대폰|핸드폰|모바일|"
+        r"fax|facsimile|팩시밀리|팩스|e-?mail|이메일|전자우편)"
+        r"(?![A-Za-z가-힣])\s*[:.()|\-]*\s*(.*)$",
+        line,
+        re.IGNORECASE,
+    )
+    if long_label:
+        raw_label = long_label.group(1).lower()
+        value = long_label.group(2).strip()
+        if raw_label in {"telephone", "tel", "대표전화", "전화번호", "전화"}:
+            return "telephone", value
+        if raw_label in {"mobile", "mob", "휴대전화", "휴대폰", "핸드폰", "모바일"}:
+            return "mobile", value
+        if raw_label in {"fax", "facsimile", "팩시밀리", "팩스"}:
+            return "fax", value
+        return "email", value
+
+    stripped = line.strip()
+    if not stripped:
+        return "", ""
+    short_label = stripped[0].upper()
+    if short_label not in {"T", "M", "F", "E"}:
+        return "", ""
+    value = stripped[1:].lstrip(" \t:.()|-")
+    if short_label in {"T", "M", "F"}:
+        if value and not re.match(r"(?:\+?82|0)", value):
+            return "", ""
+        return {"T": "telephone", "M": "mobile", "F": "fax"}[short_label], value
+    if value and "@" not in value:
+        return "", ""
+    return "email", value
+
+
+def _labeled_value(lines: list[str], index: int) -> tuple[str, str]:
+    label, value = _split_contact_label(lines[index])
+    if label and not value and index + 1 < len(lines):
+        value = lines[index + 1]
+    return label, value
 
 
 def _repair_domain(value: str) -> str:
@@ -147,15 +193,29 @@ def _phone_matches(line: str) -> list[str]:
 
 def _extract_phones(lines: list[str]) -> tuple[str, str]:
     candidates: dict[str, int] = {}
+    fax_numbers: set[str] = set()
+
+    for index, _line in enumerate(lines):
+        label, value = _labeled_value(lines, index)
+        if not label:
+            continue
+        labeled_phones = _phone_matches(value)
+        if label == "fax":
+            fax_numbers.update(labeled_phones)
+            continue
+        if label not in {"telephone", "mobile"}:
+            continue
+        label_score = 200 if label == "mobile" else 150
+        for phone in labeled_phones:
+            candidates[phone] = max(candidates.get(phone, -999), label_score - index)
+
     for index, line in enumerate(lines):
-        lowered = line.lower()
-        is_fax = bool(
-            re.search(r"(?:^|\s)(?:f|fax)\s*[:.]?", lowered)
-            or re.match(r"^5\s+0", lowered)
-        )
-        if is_fax:
+        label, _value = _labeled_value(lines, index)
+        if label == "fax":
             continue
         for phone in _phone_matches(line):
+            if phone in fax_numbers:
+                continue
             lowered = line.lower()
             digits = re.sub(r"\D", "", phone)
             score = 0
@@ -182,6 +242,17 @@ def _extract_phones(lines: list[str]) -> tuple[str, str]:
         primary,
         secondary,
     )
+
+
+def _extract_fax(lines: list[str]) -> str:
+    for index, _line in enumerate(lines):
+        label, value = _labeled_value(lines, index)
+        if label != "fax":
+            continue
+        matches = _phone_matches(value)
+        if matches:
+            return matches[0]
+    return ""
 
 
 def _is_address(line: str) -> bool:
@@ -296,6 +367,7 @@ def parse_business_card(lines: Iterable[object]) -> ParsedCard:
 
     email = _extract_email(clean_lines)
     phone, phone2 = _extract_phones(clean_lines)
+    fax = _extract_fax(clean_lines)
 
     website = ""
     for line in clean_lines:
@@ -402,6 +474,7 @@ def parse_business_card(lines: Iterable[object]) -> ParsedCard:
         job_title=job_title,
         phone=phone,
         phone2=phone2,
+        fax=fax,
         email=email,
         website=website,
         address=address,
