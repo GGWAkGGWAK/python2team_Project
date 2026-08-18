@@ -20,10 +20,14 @@ def make_app(tmp_path):
 def test_home_health_and_contact_crud(tmp_path):
     client = make_app(tmp_path).test_client()
 
-    assert client.get("/").status_code == 200
+    home = client.get("/")
+    assert home.status_code == 200
+    assert b'id="image-upload"' in home.data
+    assert b'id="upload-dropzone"' in home.data
+    assert b"image/jpeg,image/png,image/webp,image/bmp" in home.data
     assert client.get("/api/health").get_json()["service"] == "cardocr"
-    assert client.get("/assets/styles.css?v=frontend-v3").mimetype == "text/css"
-    assert client.get("/assets/app.js?v=frontend-v3").mimetype == "text/javascript"
+    assert client.get("/assets/styles.css?v=frontend-v7").mimetype == "text/css"
+    assert client.get("/assets/app.js?v=frontend-v7").mimetype == "text/javascript"
 
     response = client.post(
         "/api/contacts",
@@ -120,4 +124,17 @@ def test_ocr_pipeline_with_stubbed_engine(tmp_path, monkeypatch):
     assert data["fields"]["name"] == "김하늘"
     assert data["fields"]["email"] == "sky@example.com"
     assert data["preview"].startswith("data:image/jpeg;base64,")
+    assert data["processing_ms"]["total"] >= 0
     assert (tmp_path / "scans" / data["image_token"]).is_file()
+
+
+def test_ocr_upload_rejects_unsupported_extension(tmp_path):
+    client = make_app(tmp_path).test_client()
+    response = client.post(
+        "/api/ocr",
+        data={"image": (io.BytesIO(b"not-an-image"), "card.txt")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert "JPG, PNG, WEBP, BMP" in response.get_json()["error"]["message"]

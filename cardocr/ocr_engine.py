@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 import re
 import threading
@@ -183,6 +184,8 @@ class PaddleOCREngine:
     def __init__(self) -> None:
         self._reader = None
         self._lock = threading.Lock()
+        self._warmup_thread: threading.Thread | None = None
+        self._last_error = ""
 
     @staticmethod
     def installed() -> bool:
@@ -203,17 +206,54 @@ class PaddleOCREngine:
                     # PaddlePaddle 3.3 on Windows CPU has a known oneDNN/PIR
                     # incompatibility for the v5 detector, so use the stable
                     # generic CPU path.
-                    self._reader = PaddleOCR(
-                        lang="korean",
-                        ocr_version="PP-OCRv5",
-                        device="cpu",
-                        enable_mkldnn=False,
-                        cpu_threads=4,
-                        use_doc_orientation_classify=False,
-                        use_doc_unwarping=False,
-                        use_textline_orientation=False,
-                    )
+                    try:
+                        self._reader = PaddleOCR(
+                            text_detection_model_name="PP-OCRv5_mobile_det",
+                            text_recognition_model_name="korean_PP-OCRv5_mobile_rec",
+                            device="cpu",
+                            enable_mkldnn=False,
+                            cpu_threads=4,
+                            use_doc_orientation_classify=False,
+                            use_doc_unwarping=False,
+                            use_textline_orientation=False,
+                        )
+                        self._last_error = ""
+                    except Exception as exc:
+                        self._last_error = str(exc)
+                        raise
         return self._reader
+
+    def start_warmup(self) -> None:
+        """Load the Paddle models in the background before the first upload."""
+        if not self.installed() or self._reader is not None:
+            return
+        if self._warmup_thread is not None and self._warmup_thread.is_alive():
+            return
+
+        def load_models() -> None:
+            logger = logging.getLogger("cardocr.ocr")
+            logger.info("OCR 모델 준비를 시작합니다 (PP-OCRv5 mobile, CPU).")
+            try:
+                self._get_reader()
+            except Exception:
+                logger.exception("OCR 모델 준비에 실패했습니다.")
+            else:
+                logger.info("OCR 모델 준비가 완료되었습니다.")
+
+        self._warmup_thread = threading.Thread(
+            target=load_models,
+            name="cardocr-ocr-warmup",
+            daemon=True,
+        )
+        self._warmup_thread.start()
+
+    def runtime_status(self) -> dict[str, str | bool]:
+        warming = self._warmup_thread is not None and self._warmup_thread.is_alive()
+        return {
+            "ready": self._reader is not None,
+            "warming": warming,
+            "error": self._last_error,
+        }
 
     def recognize(self, image: np.ndarray) -> list[OCRLine]:
         if image.ndim != 3 or image.shape[2] != 3:
@@ -265,6 +305,18 @@ class HybridOCREngine:
         if self.easy.installed():
             available.append("EasyOCR ko/en")
         return available
+
+    def start_warmup(self) -> None:
+        self.paddle.start_warmup()
+
+    def runtime_status(self) -> dict[str, str | bool]:
+        if self.paddle.installed():
+            return self.paddle.runtime_status()
+        return {
+            "ready": self.easy.installed(),
+            "warming": False,
+            "error": "",
+        }
 
     @staticmethod
     def _paddle_result_is_strong(lines: list[OCRLine]) -> bool:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 
 from flask import Flask
@@ -24,6 +25,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         DATABASE=str(Path(app.instance_path) / "business_cards.db"),
         SCAN_DIR=str(Path(app.instance_path) / "scans"),
         MAX_CONTENT_LENGTH=15 * 1024 * 1024,
+        OCR_MAX_LONG_EDGE=2000,
+        OCR_WARMUP=True,
     )
 
     if test_config:
@@ -39,6 +42,12 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .routes import web
 
     app.register_blueprint(web)
+    app.logger.setLevel(logging.INFO)
+
+    if app.config["OCR_WARMUP"] and not app.config.get("TESTING", False):
+        from .ocr_engine import engine
+
+        engine.start_warmup()
     return app
 
 

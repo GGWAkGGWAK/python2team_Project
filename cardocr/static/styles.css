@@ -70,7 +70,14 @@ button { color: inherit; }
 .camera-stage.camera-active .camera-placeholder, .camera-stage.preview-active .camera-placeholder { display: none; }
 .camera-placeholder { display: flex; flex-direction: column; align-items: center; width: min(360px, 88%); text-align: center; }
 .camera-placeholder strong { font-size: 14px; line-height: 1.5; }
-.camera-placeholder > span:last-child { margin-top: 7px; color: #93a0b3; font-size: 11px; }
+.camera-placeholder > span:nth-last-child(2) { margin-top: 7px; color: #93a0b3; font-size: 11px; }
+.camera-placeholder small { margin-top: 5px; color: #6f7d92; font-size: 10px; line-height: 1.45; }
+
+.upload-dropzone { box-sizing: border-box; padding: 28px 24px; border: 1px dashed #647894; border-radius: 12px; outline: 0; cursor: pointer; transition: border-color .15s, background .15s, transform .15s; }
+.upload-dropzone:hover, .upload-dropzone:focus-visible { border-color: #88aefc; background: rgba(58, 110, 226, .09); }
+.camera-stage.upload-dragging { outline: 3px solid rgba(75, 129, 246, .45); outline-offset: -3px; }
+.camera-stage.upload-dragging .upload-dropzone { border-color: #8db2ff; background: rgba(58, 110, 226, .16); transform: scale(1.015); }
+.upload-symbol { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 14px; color: #b9ccf7; border: 2px solid #8da0ba; border-radius: 50%; font-size: 23px; font-weight: 800; line-height: 1; }
 
 .camera-symbol { position: relative; display: block; width: 44px; height: 32px; margin-bottom: 16px; border: 3px solid #8da0ba; border-radius: 7px; }
 .camera-symbol::before { content: ""; position: absolute; top: 7px; left: 13px; width: 12px; height: 12px; border: 3px solid #8da0ba; border-radius: 50%; }
@@ -100,6 +107,7 @@ button { color: inherit; }
 .button.secondary { color: #fff; background: var(--navy); }
 .button.outline { color: #445168; background: #fff; border-color: #d8dee8; }
 .button.outline:hover { color: var(--blue); border-color: #9bb5ee; }
+.button.upload-button { color: var(--blue); border-color: #9bb5ee; }
 .button.small { min-height: 36px; padding: 0 13px; }
 .button.save { min-width: 150px; }
 .detection-note { margin-top: 12px; padding: 10px 12px; color: #725718; background: #fff8e4; border: 1px solid #efdfa9; border-radius: 8px; font-size: 11px; line-height: 1.55; }
