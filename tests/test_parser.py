@@ -183,3 +183,15 @@ def test_larger_korean_company_name_wins_over_small_english_translation():
     )
 
     assert parsed.company == "대구디지털혁신진흥원"
+
+
+def test_email_label_attached_to_address_is_removed_and_domain_is_repaired():
+    parsed = parse_business_card(["Email.hong.gildong@cardflow.cokr"])
+
+    assert parsed.email == "hong.gildong@cardflow.co.kr"
+
+
+def test_email_word_inside_real_local_part_is_not_removed():
+    parsed = parse_business_card(["emailmanager@example.com"])
+
+    assert parsed.email == "emailmanager@example.com"

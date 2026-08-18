@@ -41,6 +41,10 @@ LABEL_RE = re.compile(
     r"\s*[:.()\-]?\s*",
     re.IGNORECASE,
 )
+EMAIL_LABEL_PREFIX_RE = re.compile(
+    r"^(?:e-?mail|이메일|전자우편|메일|E)(?:\s*[:.()|_\-]\s*|\s+)",
+    re.IGNORECASE,
+)
 POSTAL_ADDRESS_RE = re.compile(r"(?:^|\s)\d{5}\s*[|I1]?\s*.*(?:시|도|구|군|로|길|동)")
 KOREAN_ADDRESS_RE = re.compile(r"(?:특별시|광역시|특별자치[시도]|[가-힣]+[시도])\s*.*(?:구|군|로|길|동)")
 
@@ -144,8 +148,8 @@ def _labeled_value(lines: list[str], index: int) -> tuple[str, str]:
 
 def _repair_domain(value: str) -> str:
     domain = re.sub(r"\s+", "", value.lower()).strip(".,;:|/")
-    domain = re.sub(r"(?i)(co|or|go|ac)kr$", r".\1.kr", domain)
-    domain = re.sub(r"(?i)(co|or|go|ac)k$", r".\1.kr", domain)
+    domain = re.sub(r"(?i)\.?(co|or|go|ac)kr$", r".\1.kr", domain)
+    domain = re.sub(r"(?i)\.?(co|or|go|ac)k$", r".\1.kr", domain)
     if "." not in domain:
         domain = re.sub(r"(?i)(com|net|org|kr)$", r".\1", domain)
     domain = re.sub(r"^www(?=[a-z0-9])", "www.", domain)
@@ -154,15 +158,13 @@ def _repair_domain(value: str) -> str:
 
 
 def _extract_email(lines: list[str]) -> str:
-    joined = "\n".join(lines)
-    direct = EMAIL_RE.search(joined)
-    if direct:
-        return direct.group(0).lower()
-
     for line in lines:
         if "@" not in line:
             continue
-        candidate = LABEL_RE.sub("", line).replace(" ", "")
+        # OCR may attach the printed field label to the address, for example
+        # ``Email.hong@company.cokr``.  Strip only a recognized leading label;
+        # do not remove legitimate local-parts merely containing "email".
+        candidate = EMAIL_LABEL_PREFIX_RE.sub("", line).replace(" ", "")
         candidate = re.sub(r"[^A-Za-z0-9._%+@\-]", "", candidate)
         if candidate.count("@") != 1:
             continue
