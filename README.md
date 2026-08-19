@@ -9,7 +9,9 @@
 - [WSL2 기반 LayoutXLM 학습 매뉴얼](docs/LAYOUTXLM_WSL_TRAINING_MANUAL.md)
 - [Git LFS 모델 업로드·다운로드 매뉴얼](docs/GIT_LFS_MODEL_MANUAL.md)
 
-LayoutXLM 학습은 Detectron2 호환성을 위해 WSL2 Ubuntu 환경을 권장합니다. 학습된 `model.safetensors`는 약 1.4GB이므로 GitHub에 올릴 때 일반 Git이 아니라 Git LFS를 사용해야 합니다.
+> **LayoutXLM 사용 환경:** 현재 프로젝트의 LayoutXLM 필드 분류기는 추론 시에도 Detectron2가 필요합니다. Detectron2는 네이티브 Windows를 공식 지원하지 않으므로, **학습한 LayoutXLM 모델을 사용할 때는 WSL2 Ubuntu에서 애플리케이션을 실행해야 합니다.** Windows PowerShell에서는 LayoutXLM 없이 PP-OCRv5/EasyOCR와 규칙 기반 필드 분류로 실행할 수 있습니다.
+
+학습된 `model.safetensors`는 약 1.4GB이므로 GitHub에 올릴 때 일반 Git이 아니라 Git LFS를 사용해야 합니다.
 
 ## 주요 기능
 
@@ -24,13 +26,18 @@ LayoutXLM 학습은 Detectron2 호환성을 위해 WSL2 Ubuntu 환경을 권장�
 - UTF-8 CSV 및 서식이 적용된 Excel 내보내기
 - OpenCV `VideoCapture` 기반 별도 카메라 촬영 도구
 
-## 권장 환경
+## 실행 환경 구분
 
-- Windows 10/11
-- Python 3.11 권장 (PaddlePaddle와 EasyOCR/PyTorch 공통 호환 환경)
+| 실행 환경 | PP-OCRv5/EasyOCR | 규칙 기반 필드 분류 | 학습한 LayoutXLM 필드 분류 |
+| --- | --- | --- | --- |
+| Windows PowerShell | 지원 | 지원 | 지원하지 않음 |
+| WSL2 Ubuntu | 지원 | 지원 | 지원 |
+
+- Windows 10/11 및 WSL2 Ubuntu
+- Python 3.11 권장 (PaddlePaddle, EasyOCR, PyTorch 공통 호환 환경)
 - 노트북 내장 카메라 또는 USB 웹캠
 
-## 설치와 실행
+## Windows 기본 실행(LayoutXLM 미사용)
 
 PowerShell에서 프로젝트 폴더로 이동한 뒤 실행합니다.
 
@@ -46,17 +53,34 @@ python app.py
 
 > 앱 실행 직후 경량 PP-OCRv5 mobile 모델을 백그라운드에서 준비합니다. 처음 한 번은 모델을 사용자 폴더에 내려받기 때문에 인터넷 연결이 필요하며 상단 상태가 `OCR 준비됨`으로 바뀐 뒤 인식하면 대기시간이 줄어듭니다. 이후에는 내려받은 모델을 재사용합니다. PP-OCRv5 결과가 부족하거나 실행되지 않으면 EasyOCR가 자동으로 보완합니다.
 
-## 선택형 LayoutXLM 필드 분류
+## WSL2 Ubuntu 전체 실행(LayoutXLM 사용)
 
-기본 설치에서는 기존 규칙 기반 분류가 사용됩니다. 명함 데이터로 미세조정한 LayoutXLM 모델이 있으면 OCR 텍스트와 위치를 함께 분석해 이름·회사·직책·주소를 보완하고, 전화·팩스·이메일은 기존 정규식으로 검증합니다.
+Windows 기본 설치에서는 기존 규칙 기반 분류가 사용됩니다. 명함 데이터로 미세조정한 LayoutXLM 모델을 사용하면 OCR 텍스트와 위치를 함께 분석해 이름·회사·직책·주소를 보완하고, 전화·팩스·이메일은 기존 정규식으로 검증합니다.
 
-```powershell
-pip install -r requirements-ai.txt
-$env:CARDOCR_LAYOUT_MODEL_DIR = "$PWD\models\business-card-layoutxlm"
+LayoutXLM을 사용하려면 Ubuntu 터미널에서 실행합니다. 최초 1회 AI 의존성과 Detectron2를 설치합니다.
+
+```bash
+cd ~/projects/python2team_Project
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-ai.txt
+python -m pip install --no-build-isolation "git+https://github.com/facebookresearch/detectron2.git"
+export CARDOCR_LAYOUT_MODEL_DIR="$PWD/models/business-card-layoutxlm"
 python app.py
 ```
 
-학습 데이터 형식과 학습 명령은 `training/README.md`를 확인하세요. 학습 모델이 없거나 실행에 실패해도 애플리케이션은 규칙 기반 방식으로 계속 동작합니다.
+설치가 끝난 다음부터는 아래 명령만 실행하면 됩니다.
+
+```bash
+cd ~/projects/python2team_Project
+source .venv/bin/activate
+export CARDOCR_LAYOUT_MODEL_DIR="$PWD/models/business-card-layoutxlm"
+python app.py
+```
+
+Ubuntu 터미널을 닫지 않은 상태에서 Windows 브라우저로 <http://127.0.0.1:5000>에 접속합니다. <http://127.0.0.1:5000/api/health>의 `field_classifier` 항목에서 `configured`와 `ready`가 모두 `true`이면 LayoutXLM이 적용된 상태입니다.
+
+학습 데이터 형식과 학습 명령은 `training/README.md`를 확인하세요. LayoutXLM 모델이 없거나 로딩에 실패하면 애플리케이션은 규칙 기반 방식으로 계속 동작하지만, 학습한 AI 필드 분류는 사용되지 않습니다.
 
 ## OpenCV 카메라 창으로 촬영
 
