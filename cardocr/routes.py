@@ -7,6 +7,7 @@ import io
 import re
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,9 @@ from .image_processing import (
 )
 from .ocr_engine import OCRUnavailableError, engine
 from .parser import parse_business_card
+from .parser import map_field_confidence
+from .security import extract_qr_url
+from .validator import normalize_company, normalize_phone, verification_storage, verify_contact
 
 
 web = Blueprint("web", __name__)
@@ -109,6 +113,18 @@ def _export_value(value: Any) -> Any:
     return value
 
 
+def _verified_payload(data: dict[str, Any], field_confidence=None, exclude_id=None) -> tuple[dict, dict]:
+    prepared = dict(data)
+    prepared["phone_norm"] = normalize_phone(str(prepared.get("phone", "")))
+    prepared["company_norm"] = normalize_company(str(prepared.get("company", "")))
+    verification = verify_contact(
+        prepared, field_confidence, _database().list_contacts(), exclude_id=exclude_id
+    )
+    prepared.update(verification_storage(verification))
+    prepared["verified_at"] = datetime.now().isoformat(timespec="seconds")
+    return prepared, verification
+
+
 @web.get("/")
 def index():
     return render_template("index.html")
@@ -154,6 +170,7 @@ def health():
 
 
 @web.post("/api/ocr")
+@web.post("/api/recognize")
 def recognize_card():
     started = time.perf_counter()
     upload = request.files.get("image")
@@ -186,6 +203,9 @@ def recognize_card():
 
     parsed = parse_business_card(lines)
     parsed, classifier_info = field_classifier.enhance(ocr_image, lines, parsed)
+    parsed.qr_url = extract_qr_url(source, card.image)
+    field_confidence = map_field_confidence(parsed, lines)
+    verification = verify_contact(parsed.to_dict(), field_confidence, _database().list_contacts())
     uncertain_mixed_text = any(
         line.confidence < 0.45
         and bool(re.search(r"[가-힣]", line.text))
@@ -236,6 +256,8 @@ def recognize_card():
                     {"text": line.text, "confidence": line.confidence, "box": line.box}
                     for line in lines
                 ],
+                "field_confidence": field_confidence,
+                "verification": verification,
                 "image_token": image_token,
                 "preview": as_data_url(card.image),
                 "processing_ms": timings,
@@ -260,13 +282,14 @@ def parse_text():
     if not raw_text.strip():
         return _error("분류할 OCR 텍스트를 입력해 주세요.")
     parsed = parse_business_card(raw_text.splitlines())
-    return jsonify({"ok": True, "data": {"fields": parsed.to_dict()}})
+    verification = verify_contact(parsed.to_dict(), {}, _database().list_contacts())
+    return jsonify({"ok": True, "data": {"fields": parsed.to_dict(), "verification": verification}})
 
 
 @web.get("/api/contacts")
 def list_contacts():
     query = request.args.get("q", "")
-    contacts = _database().list_contacts(query)
+    contacts = _database().list_contacts(query, request.args.get("flag", ""))
     return jsonify({"ok": True, "data": contacts, "count": len(contacts)})
 
 
@@ -299,7 +322,9 @@ def create_contact():
             409,
         )
     data["image_token"] = _safe_image_token(data.get("image_token"))
-    return jsonify({"ok": True, "data": _database().create_contact(data)}), 201
+    data, verification = _verified_payload(data)
+    contact = _database().create_contact(data)
+    return jsonify({"ok": True, "data": contact, "verification": verification}), 201
 
 
 @web.get("/api/contacts/<int:contact_id>")
@@ -344,10 +369,21 @@ def update_contact(contact_id: int):
         return _error("고객정보를 찾을 수 없습니다.", 404, "NOT_FOUND")
     image_token = _safe_image_token(data.get("image_token"))
     data["image_token"] = image_token or existing.get("image_token", "")
+    data, verification = _verified_payload(data, exclude_id=contact_id)
     contact = _database().update_contact(contact_id, data)
     if existing.get("image_token") != data["image_token"]:
         _delete_scan_if_orphaned(str(existing.get("image_token", "")))
-    return jsonify({"ok": True, "data": contact})
+    return jsonify({"ok": True, "data": contact, "verification": verification})
+
+
+@web.post("/api/contacts/<int:contact_id>/verify")
+def verify_saved_contact(contact_id: int):
+    existing = _database().get_contact(contact_id)
+    if existing is None:
+        return _error("고객정보를 찾을 수 없습니다.", 404, "NOT_FOUND")
+    prepared, verification = _verified_payload(existing, exclude_id=contact_id)
+    contact = _database().update_contact(contact_id, prepared)
+    return jsonify({"ok": True, "data": contact, "verification": verification})
 
 
 @web.delete("/api/contacts/<int:contact_id>")

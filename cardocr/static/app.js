@@ -28,6 +28,10 @@
     emptyContacts: $("#empty-contacts"),
     contactCount: $("#contact-count"),
     ocrStatus: $("#ocr-status"),
+    verificationPanel: $("#verification-panel"),
+    scoreCards: $("#score-cards"),
+    verificationChecks: $("#verification-checks"),
+    duplicateNote: $("#duplicate-note"),
   };
 
   function toast(message, type = "success", duration = 3800) {
@@ -149,6 +153,32 @@
     }
   }
 
+  function renderFieldConfidence(confidence = {}) {
+    $$('[data-confidence]').forEach((badge) => {
+      const value = confidence[badge.dataset.confidence]?.confidence;
+      badge.textContent = Number.isFinite(value) ? `${Math.round(value * 100)}%` : "";
+      badge.className = Number.isFinite(value) ? (value < 0.65 ? "confidence-low" : "confidence-ok") : "";
+    });
+  }
+
+  function renderVerification(verification) {
+    if (!verification?.scores) {
+      elements.verificationPanel.hidden = true;
+      return;
+    }
+    const { accuracy, consistency, safety } = verification.scores;
+    const safetyLabel = { ok: "확인됨", unknown: "확인 불가", warn: "주의" }[safety] || "확인 불가";
+    elements.scoreCards.innerHTML = `
+      <div><span>인식 정확도</span><strong>${accuracy || 0}<small>점</small></strong></div>
+      <div><span>정보 정합성</span><strong>${consistency || 0}<small>점</small></strong></div>
+      <div class="score-${escapeHtml(safety)}"><span>안전성</span><strong>${escapeHtml(safetyLabel)}</strong></div>`;
+    elements.verificationChecks.innerHTML = (verification.checks || []).map((check) => `
+      <li class="check-${escapeHtml(check.state)}"><i></i><div><strong>${escapeHtml(check.label)}</strong><span>${escapeHtml(check.message)}</span>${check.suggestion ? `<button class="apply-suggestion" data-field="${escapeHtml(check.field)}" data-value="${escapeHtml(check.suggestion)}" type="button">${escapeHtml(check.suggestion)} 적용</button>` : ""}</div></li>`).join("");
+    elements.duplicateNote.hidden = !verification.duplicate;
+    elements.duplicateNote.textContent = verification.duplicate ? `유사한 기존 고객 #${verification.duplicate.contact_id} · ${Math.round(verification.duplicate.similarity * 100)}% (${verification.duplicate.reason})` : "";
+    elements.verificationPanel.hidden = false;
+  }
+
   function validateImageFile(file) {
     if (!(file instanceof File)) return "업로드할 이미지 파일을 선택해 주세요.";
     if (file.size <= 0) return "내용이 없는 파일은 업로드할 수 없습니다.";
@@ -207,6 +237,8 @@
       elements.imageToken.value = data.image_token;
       elements.contactId.value = "";
       fillForm(data.fields);
+      renderFieldConfidence(data.field_confidence);
+      renderVerification(data.verification);
       const notes = data.detection.warnings || [];
       elements.detectionNote.hidden = notes.length === 0;
       elements.detectionNote.textContent = notes.join(" ");
@@ -276,6 +308,8 @@
     elements.processing.classList.remove("active");
     elements.detectionNote.hidden = true;
     elements.detectionNote.textContent = "";
+    renderFieldConfidence();
+    renderVerification(null);
     const rawDetails = elements.rawText.closest("details");
     if (rawDetails) rawDetails.open = false;
     elements.canvas.width = 0;
@@ -335,6 +369,9 @@
         elements.preview.src = `/api/scans/${result.data.image_token}`;
         elements.cameraStage.className = "camera-stage preview-active";
       }
+      let storedChecks = [];
+      try { storedChecks = JSON.parse(result.data.verify_json || "[]"); } catch { storedChecks = []; }
+      renderVerification({ scores: { accuracy: result.data.score_accuracy, consistency: result.data.score_consistency, safety: result.data.score_safety || "unknown" }, checks: storedChecks, duplicate: null });
       $("#save-button").lastChild.textContent = " 고객정보 수정";
       switchView("scanner");
     } catch (error) {
@@ -362,6 +399,7 @@
         body: JSON.stringify({ raw_text: elements.rawText.value }),
       });
       fillForm(result.data.fields);
+      renderVerification(result.data.verification);
       toast("OCR 원문을 다시 분류했습니다.");
     } catch (error) {
       toast(error.message, "error");
@@ -394,6 +432,12 @@
     if (file) uploadImage(file);
   });
   elements.form.addEventListener("submit", saveContact);
+  elements.verificationChecks.addEventListener("click", (event) => {
+    const button = event.target.closest(".apply-suggestion");
+    if (!button) return;
+    const field = elements.form.elements.namedItem(button.dataset.field);
+    if (field) field.value = button.dataset.value;
+  });
   $("#form-reset").addEventListener("click", resetForm);
   $("#reparse-button").addEventListener("click", reparseText);
   $("#new-contact").addEventListener("click", () => { resetForm(); switchView("scanner"); });

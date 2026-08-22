@@ -129,9 +129,26 @@ def test_ocr_pipeline_with_stubbed_engine(tmp_path, monkeypatch):
     data = response.get_json()["data"]
     assert data["fields"]["name"] == "김하늘"
     assert data["fields"]["email"] == "sky@example.com"
+    assert data["field_confidence"]["email"]["confidence"] == 0.97
+    assert set(data["verification"]["scores"]) == {"accuracy", "consistency", "safety"}
     assert data["preview"].startswith("data:image/jpeg;base64,")
     assert data["processing_ms"]["total"] >= 0
     assert (tmp_path / "scans" / data["image_token"]).is_file()
+
+
+def test_saved_contact_verification_and_warn_filter(tmp_path):
+    client = make_app(tmp_path).test_client()
+    created = client.post("/api/contacts", json={
+        "name": "홍길동", "company": "ABC", "phone": "010-1234-5678",
+        "email": "hong@abc.com", "website": "abc.com", "qr_url": "http://abc-login.xyz",
+    })
+    assert created.status_code == 201
+    contact = created.get_json()["data"]
+    assert contact["score_safety"] == "warn"
+    assert client.get("/api/contacts?flag=warn").get_json()["count"] == 1
+    verified = client.post(f"/api/contacts/{contact['id']}/verify")
+    assert verified.status_code == 200
+    assert verified.get_json()["verification"]["scores"]["safety"] == "warn"
 
 
 def test_ocr_upload_rejects_unsupported_extension(tmp_path):
