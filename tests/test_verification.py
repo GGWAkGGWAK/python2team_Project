@@ -2,7 +2,8 @@ import cv2
 from cardocr.ocr_engine import OCRLine
 from cardocr.parser import map_field_confidence, parse_business_card
 from cardocr.security import extract_qr_url, inspect_url
-from cardocr.validator import find_similar_contact, valid_biz_no, verify_contact
+from cardocr.validator import classify_job, find_similar_contact, valid_biz_no, verify_contact
+from cardocr.online_validator import check_email_mx, check_website
 
 
 def test_business_number_and_typo_validation():
@@ -41,3 +42,14 @@ def test_similar_contact_uses_name_and_company():
     )
     assert duplicate["contact_id"] == 7
     assert duplicate["similarity"] >= 0.9
+
+
+def test_job_category_and_neutral_network_failures(monkeypatch):
+    import requests
+
+    assert classify_job("AI 연구개발팀 선임") == "기술"
+    assert classify_job("브랜드 마케팅 매니저") == "마케팅"
+    monkeypatch.setattr("cardocr.online_validator.requests.head",
+                        lambda *_args, **_kwargs: (_ for _ in ()).throw(requests.Timeout()))
+    assert check_website("example.com")["state"] == "unknown"
+    assert check_email_mx("")["state"] == "unknown"

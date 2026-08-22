@@ -7,6 +7,7 @@ import io
 import re
 import time
 import uuid
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,11 @@ from .ocr_engine import OCRUnavailableError, engine
 from .parser import parse_business_card
 from .parser import map_field_confidence
 from .security import extract_qr_url
-from .validator import normalize_company, normalize_phone, verification_storage, verify_contact
+from .online_validator import run_online_checks
+from .validator import (
+    append_online_checks, classify_job, normalize_company, normalize_phone,
+    verification_storage, verify_contact,
+)
 
 
 web = Blueprint("web", __name__)
@@ -113,15 +118,24 @@ def _export_value(value: Any) -> Any:
     return value
 
 
-def _verified_payload(data: dict[str, Any], field_confidence=None, exclude_id=None) -> tuple[dict, dict]:
+def _truthy(value: Any) -> bool:
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def _verified_payload(data: dict[str, Any], field_confidence=None, exclude_id=None,
+                      online: bool = False) -> tuple[dict, dict]:
     prepared = dict(data)
     prepared["phone_norm"] = normalize_phone(str(prepared.get("phone", "")))
     prepared["company_norm"] = normalize_company(str(prepared.get("company", "")))
     verification = verify_contact(
         prepared, field_confidence, _database().list_contacts(), exclude_id=exclude_id
     )
+    if online:
+        append_online_checks(verification, run_online_checks(prepared))
     prepared.update(verification_storage(verification))
     prepared["verified_at"] = datetime.now().isoformat(timespec="seconds")
+    prepared["category"] = classify_job(str(prepared.get("job_title", "")))
+    prepared["stale_status"] = "current" if online else str(prepared.get("stale_status", "") or "unknown")
     return prepared, verification
 
 
@@ -206,6 +220,8 @@ def recognize_card():
     parsed.qr_url = extract_qr_url(source, card.image)
     field_confidence = map_field_confidence(parsed, lines)
     verification = verify_contact(parsed.to_dict(), field_confidence, _database().list_contacts())
+    if _truthy(request.form.get("online_validation")):
+        append_online_checks(verification, run_online_checks(parsed.to_dict()))
     uncertain_mixed_text = any(
         line.confidence < 0.45
         and bool(re.search(r"[가-힣]", line.text))
@@ -283,6 +299,8 @@ def parse_text():
         return _error("분류할 OCR 텍스트를 입력해 주세요.")
     parsed = parse_business_card(raw_text.splitlines())
     verification = verify_contact(parsed.to_dict(), {}, _database().list_contacts())
+    if _truthy(data.get("online_validation")):
+        append_online_checks(verification, run_online_checks(parsed.to_dict()))
     return jsonify({"ok": True, "data": {"fields": parsed.to_dict(), "verification": verification}})
 
 
@@ -322,7 +340,7 @@ def create_contact():
             409,
         )
     data["image_token"] = _safe_image_token(data.get("image_token"))
-    data, verification = _verified_payload(data)
+    data, verification = _verified_payload(data, online=_truthy(data.get("online_validation")))
     contact = _database().create_contact(data)
     return jsonify({"ok": True, "data": contact, "verification": verification}), 201
 
@@ -369,7 +387,9 @@ def update_contact(contact_id: int):
         return _error("고객정보를 찾을 수 없습니다.", 404, "NOT_FOUND")
     image_token = _safe_image_token(data.get("image_token"))
     data["image_token"] = image_token or existing.get("image_token", "")
-    data, verification = _verified_payload(data, exclude_id=contact_id)
+    data, verification = _verified_payload(
+        data, exclude_id=contact_id, online=_truthy(data.get("online_validation"))
+    )
     contact = _database().update_contact(contact_id, data)
     if existing.get("image_token") != data["image_token"]:
         _delete_scan_if_orphaned(str(existing.get("image_token", "")))
@@ -381,9 +401,25 @@ def verify_saved_contact(contact_id: int):
     existing = _database().get_contact(contact_id)
     if existing is None:
         return _error("고객정보를 찾을 수 없습니다.", 404, "NOT_FOUND")
-    prepared, verification = _verified_payload(existing, exclude_id=contact_id)
+    payload = request.get_json(silent=True) or {}
+    try:
+        previous_checks = json.loads(str(existing.get("verify_json", "") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        previous_checks = []
+    online = _truthy(payload.get("online_validation"))
+    prepared, verification = _verified_payload(
+        existing, exclude_id=contact_id, online=online
+    )
+    previous_states = {item.get("id"): item.get("state") for item in previous_checks}
+    stale_reasons = [item["label"] for item in verification["checks"]
+                     if item.get("online") and item["state"] == "warn"
+                     and previous_states.get(item["id"]) == "ok"]
+    stale = bool(stale_reasons)
+    if online:
+        prepared["stale_status"] = "stale" if stale else "current"
     contact = _database().update_contact(contact_id, prepared)
-    return jsonify({"ok": True, "data": contact, "verification": verification})
+    return jsonify({"ok": True, "data": contact, "verification": verification,
+                    "stale": stale, "stale_reasons": stale_reasons})
 
 
 @web.delete("/api/contacts/<int:contact_id>")

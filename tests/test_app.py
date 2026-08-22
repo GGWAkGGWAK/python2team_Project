@@ -151,6 +151,32 @@ def test_saved_contact_verification_and_warn_filter(tmp_path):
     assert verified.get_json()["verification"]["scores"]["safety"] == "warn"
 
 
+def test_online_reverification_detects_stale_contact(tmp_path, monkeypatch):
+    from cardocr import routes
+
+    client = make_app(tmp_path).test_client()
+    contact = client.post("/api/contacts", json={
+        "name": "김온라인", "job_title": "영업팀장", "email": "kim@example.com",
+        "website": "example.com",
+    }).get_json()["data"]
+
+    ok_checks = [
+        {"id": "email_mx", "label": "이메일 도메인", "state": "ok", "message": "정상", "field": "email", "suggestion": None, "online": True},
+        {"id": "website_reachable", "label": "웹사이트 접속", "state": "ok", "message": "정상", "field": "website", "suggestion": None, "online": True},
+    ]
+    monkeypatch.setattr(routes, "run_online_checks", lambda _fields: ok_checks)
+    first = client.post(f"/api/contacts/{contact['id']}/verify", json={"online_validation": True})
+    assert first.get_json()["stale"] is False
+    assert first.get_json()["data"]["category"] == "영업"
+
+    warn_checks = [dict(ok_checks[0]), {**ok_checks[1], "state": "warn", "message": "접속 실패"}]
+    monkeypatch.setattr(routes, "run_online_checks", lambda _fields: warn_checks)
+    second = client.post(f"/api/contacts/{contact['id']}/verify", json={"online_validation": True})
+    assert second.get_json()["stale"] is True
+    assert second.get_json()["data"]["stale_status"] == "stale"
+    assert client.get("/api/contacts?flag=stale").get_json()["count"] == 1
+
+
 def test_ocr_upload_rejects_unsupported_extension(tmp_path):
     client = make_app(tmp_path).test_client()
     response = client.post(

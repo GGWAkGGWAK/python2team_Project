@@ -32,6 +32,9 @@
     scoreCards: $("#score-cards"),
     verificationChecks: $("#verification-checks"),
     duplicateNote: $("#duplicate-note"),
+    onlineValidation: $("#online-validation"),
+    reverifyButton: $("#reverify-button"),
+    contactFilter: $("#contact-filter"),
   };
 
   function toast(message, type = "success", duration = 3800) {
@@ -226,6 +229,7 @@
     }
     const formData = new FormData();
     formData.append("image", file, file.name || "business-card.jpg");
+    formData.append("online_validation", elements.onlineValidation.checked ? "true" : "false");
     elements.processing.classList.add("active");
     try {
       const result = await api("/api/ocr", { method: "POST", body: formData });
@@ -308,6 +312,7 @@
     elements.processing.classList.remove("active");
     elements.detectionNote.hidden = true;
     elements.detectionNote.textContent = "";
+    elements.reverifyButton.hidden = true;
     renderFieldConfidence();
     renderVerification(null);
     const rawDetails = elements.rawText.closest("details");
@@ -336,6 +341,7 @@
       <tr>
         <td><div class="person-cell"><span class="avatar">${initials(contact.name)}</span><span>${escapeHtml(contact.name || "이름 없음")}</span></div></td>
         <td>${escapeHtml(contact.company || "-")}<span class="subtle">${escapeHtml(contact.job_title || "")}</span></td>
+        <td><span class="contact-category">${escapeHtml(contact.category || "미분류")}</span><span class="subtle">${contact.stale_status === "stale" ? "오래된 명함" : contact.score_safety === "warn" ? "주의" : "검증됨"}</span></td>
         <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span><span class="subtle">${contact.fax ? `팩스 ${escapeHtml(contact.fax)}` : ""}</span></td>
         <td>${escapeHtml(contact.email || "-")}</td>
         <td>${escapeHtml((contact.created_at || "").slice(0, 10))}</td>
@@ -349,7 +355,8 @@
   async function loadContacts() {
     try {
       const query = encodeURIComponent(elements.search.value.trim());
-      const result = await api(`/api/contacts?q=${query}`);
+      const flag = encodeURIComponent(elements.contactFilter.value);
+      const result = await api(`/api/contacts?q=${query}&flag=${flag}`);
       renderContacts(result.data);
       $("#csv-export").href = `/api/export?format=csv&q=${query}`;
       $("#xlsx-export").href = `/api/export?format=xlsx&q=${query}`;
@@ -365,6 +372,7 @@
       fillForm(result.data);
       elements.contactId.value = result.data.id;
       elements.imageToken.value = result.data.image_token || "";
+      elements.reverifyButton.hidden = false;
       if (result.data.image_token) {
         elements.preview.src = `/api/scans/${result.data.image_token}`;
         elements.cameraStage.className = "camera-stage preview-active";
@@ -396,7 +404,7 @@
       const result = await api("/api/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raw_text: elements.rawText.value }),
+        body: JSON.stringify({ raw_text: elements.rawText.value, online_validation: elements.onlineValidation.checked }),
       });
       fillForm(result.data.fields);
       renderVerification(result.data.verification);
@@ -404,6 +412,22 @@
     } catch (error) {
       toast(error.message, "error");
     }
+  }
+
+  async function reverifyContact() {
+    const id = elements.contactId.value;
+    if (!id) return;
+    elements.reverifyButton.disabled = true;
+    try {
+      const result = await api(`/api/contacts/${id}/verify`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ online_validation: elements.onlineValidation.checked }),
+      });
+      fillForm(result.data);
+      renderVerification(result.verification);
+      toast(result.stale ? `오래된 정보가 감지되었습니다: ${result.stale_reasons.join(", ")}` : "재검증을 완료했습니다.", result.stale ? "error" : "success");
+    } catch (error) { toast(error.message, "error"); }
+    finally { elements.reverifyButton.disabled = false; }
   }
 
   $$(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
@@ -432,6 +456,7 @@
     if (file) uploadImage(file);
   });
   elements.form.addEventListener("submit", saveContact);
+  elements.reverifyButton.addEventListener("click", reverifyContact);
   elements.verificationChecks.addEventListener("click", (event) => {
     const button = event.target.closest(".apply-suggestion");
     if (!button) return;
@@ -445,6 +470,7 @@
     window.clearTimeout(state.searchTimer);
     state.searchTimer = window.setTimeout(loadContacts, 250);
   });
+  elements.contactFilter.addEventListener("change", loadContacts);
   elements.contactsBody.addEventListener("click", (event) => {
     const edit = event.target.closest(".edit-contact");
     const remove = event.target.closest(".delete-contact");

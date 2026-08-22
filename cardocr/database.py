@@ -29,6 +29,8 @@ CONTACT_FIELDS = (
     "score_safety",
     "verify_json",
     "verified_at",
+    "category",
+    "stale_status",
 )
 
 
@@ -56,6 +58,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     score_safety TEXT NOT NULL DEFAULT '',
     verify_json TEXT NOT NULL DEFAULT '',
     verified_at TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    stale_status TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -93,6 +97,7 @@ class Database:
                 "score_consistency": "INTEGER NOT NULL DEFAULT 0",
                 "score_safety": "TEXT NOT NULL DEFAULT ''", "verify_json": "TEXT NOT NULL DEFAULT ''",
                 "verified_at": "TEXT NOT NULL DEFAULT ''",
+                "category": "TEXT NOT NULL DEFAULT ''", "stale_status": "TEXT NOT NULL DEFAULT ''",
             }
             for name, definition in migrations.items():
                 if name not in columns:
@@ -147,6 +152,8 @@ class Database:
             params = (needle, needle, needle, needle, needle, needle)
         if flag == "warn":
             conditions.append("score_safety = 'warn'")
+        if flag == "stale":
+            conditions.append("stale_status = 'stale'")
         if conditions:
             sql += " WHERE " + " AND ".join(conditions)
         sql += " ORDER BY updated_at DESC, id DESC"

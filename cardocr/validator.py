@@ -13,6 +13,13 @@ from .security import hostname, inspect_url, registrable_hint
 
 COMMON_DOMAINS = ["gmail.com", "naver.com", "daum.net", "hanmail.net", "kakao.com",
                   "outlook.com", "hotmail.com", "icloud.com", "yahoo.com"]
+JOB_CATEGORIES = {
+    "영업": ("영업", "sales", "account", "business development", "고객"),
+    "기술": ("개발", "엔지니어", "engineer", "developer", "cto", "기술", "it"),
+    "연구": ("연구", "research", "r&d", "scientist"),
+    "마케팅": ("마케팅", "marketing", "홍보", "브랜드", "brand"),
+    "경영": ("대표", "ceo", "cfo", "임원", "이사", "사장", "경영"),
+}
 
 
 def normalize_phone(value: str) -> str:
@@ -23,6 +30,16 @@ def normalize_phone(value: str) -> str:
 def normalize_company(value: str) -> str:
     value = re.sub(r"주식회사|\(주\)|㈜|co\.?\s*,?\s*ltd\.?|inc\.?|corp(?:oration)?\.?", "", value or "", flags=re.I)
     return re.sub(r"[^0-9a-z가-힣]", "", value.lower())
+
+
+def classify_job(job_title: str) -> str:
+    lowered = (job_title or "").lower()
+    if not lowered:
+        return "미분류"
+    for category, keywords in JOB_CATEGORIES.items():
+        if any(keyword in lowered for keyword in keywords):
+            return category
+    return "기타"
 
 
 def valid_biz_no(value: str) -> bool:
@@ -111,6 +128,18 @@ def verify_contact(fields: dict[str, Any], field_confidence: dict[str, dict] | N
     safety = "warn" if any(item["state"] == "warn" and item["id"].startswith("qr_") for item in checks) else ("ok" if fields.get("qr_url") else "unknown")
     return {"scores": {"accuracy": accuracy, "consistency": consistency, "safety": safety},
             "checks": checks, "duplicate": find_similar_contact(fields, contacts, exclude_id)}
+
+
+def append_online_checks(verification: dict, checks: list[dict]) -> dict:
+    verification["checks"].extend(checks)
+    evaluated = [item for item in verification["checks"]
+                 if item["state"] != "unknown" and not item["id"].startswith("qr_")]
+    verification["scores"]["consistency"] = (
+        max(0, 100 - 20 * sum(item["state"] == "warn" for item in evaluated))
+        if evaluated else 0
+    )
+    verification["online"] = True
+    return verification
 
 
 def verification_storage(verification: dict) -> dict[str, Any]:

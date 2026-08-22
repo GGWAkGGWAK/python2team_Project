@@ -8,3 +8,5 @@ paddlepaddle==3.3.0
 paddleocr>=3.7,<3.8
 openpyxl>=3.1,<4
 waitress>=3.0,<4
+dnspython>=2.6,<3
+requests>=2.31,<3
