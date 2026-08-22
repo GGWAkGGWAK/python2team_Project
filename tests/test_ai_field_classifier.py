@@ -39,7 +39,8 @@ def test_ai_overrides_ambiguous_fields_but_not_contact_fields():
     assert merged.phone == "010-1234-5678"
 
 
-def test_classifier_falls_back_when_no_trained_model_is_configured():
+def test_classifier_falls_back_when_no_trained_model_is_configured(monkeypatch):
+    monkeypatch.delenv("CARDOCR_LAYOUT_MODEL_DIR", raising=False)
     classifier = HybridFieldClassifier(model_dir=None)
     parsed = ParsedCard(name="규칙 결과")
     result, metadata = classifier.enhance(

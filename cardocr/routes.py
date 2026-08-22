@@ -21,7 +21,7 @@ from flask import (
 )
 
 from .database import Database
-from .ai_field_classifier import field_classifier
+from .gemini_field_classifier import gemini_classifier
 from .image_processing import (
     InvalidImageError,
     as_data_url,
@@ -31,8 +31,8 @@ from .image_processing import (
     image_metadata,
     resize_for_ocr,
 )
-from .ocr_engine import OCRUnavailableError, engine
-from .parser import parse_business_card
+from .ocr_engine import OCRLine, OCRUnavailableError, engine
+from .parser import ParsedCard
 
 
 web = Blueprint("web", __name__)
@@ -147,7 +147,7 @@ def health():
                 "available_engines": engine.available_engines(),
                 **engine.runtime_status(),
             },
-            "field_classifier": field_classifier.status(),
+            "llm_classifier": gemini_classifier.status(),
             "contacts": _database().count_contacts(),
         }
     )
@@ -184,8 +184,12 @@ def recognize_card():
         )
         return _error(str(exc), 503, "OCR_UNAVAILABLE")
 
-    parsed = parse_business_card(lines)
-    parsed, classifier_info = field_classifier.enhance(ocr_image, lines, parsed)
+    parsed = ParsedCard(raw_text="\n".join(line.text for line in lines))
+    parsed, llm_classifier_info = gemini_classifier.enhance(
+        lines,
+        parsed,
+        image_bytes=encode_jpeg(ocr_image, quality=88),
+    )
     uncertain_mixed_text = any(
         line.confidence < 0.45
         and bool(re.search(r"[가-힣]", line.text))
@@ -231,7 +235,7 @@ def recognize_card():
             "ok": True,
             "data": {
                 "fields": parsed.to_dict(),
-                "field_classifier": classifier_info,
+                "llm_classifier": llm_classifier_info,
                 "ocr_lines": [
                     {"text": line.text, "confidence": line.confidence, "box": line.box}
                     for line in lines
@@ -259,8 +263,26 @@ def parse_text():
     raw_text = str(data.get("raw_text", ""))
     if not raw_text.strip():
         return _error("분류할 OCR 텍스트를 입력해 주세요.")
-    parsed = parse_business_card(raw_text.splitlines())
-    return jsonify({"ok": True, "data": {"fields": parsed.to_dict()}})
+    text_lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    lines = [
+        OCRLine(
+            text,
+            1.0,
+            [[0, index * 20], [1000, index * 20], [1000, index * 20 + 18], [0, index * 20 + 18]],
+        )
+        for index, text in enumerate(text_lines)
+    ]
+    parsed = ParsedCard(raw_text="\n".join(text_lines))
+    parsed, classifier_info = gemini_classifier.enhance(lines, parsed)
+    return jsonify(
+        {
+            "ok": True,
+            "data": {
+                "fields": parsed.to_dict(),
+                "llm_classifier": classifier_info,
+            },
+        }
+    )
 
 
 @web.get("/api/contacts")

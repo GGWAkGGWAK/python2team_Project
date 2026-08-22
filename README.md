@@ -4,21 +4,20 @@
 
 처음 설치하거나 다른 PC에 배포할 때는 `설치_및_실행_가이드.txt`를 먼저 확인하세요.
 
-## 추가 매뉴얼
+## 현재 처리 구조
 
-- [WSL2 기반 LayoutXLM 학습 매뉴얼](docs/LAYOUTXLM_WSL_TRAINING_MANUAL.md)
-- [Git LFS 모델 업로드·다운로드 매뉴얼](docs/GIT_LFS_MODEL_MANUAL.md)
+```text
+카메라·이미지 → OpenCV 보정 → PP-OCRv5/EasyOCR → Gemini 전체 필드 분류 → 사용자 확인 → SQLite 저장
+```
 
-> **LayoutXLM 사용 환경:** 현재 프로젝트의 LayoutXLM 필드 분류기는 추론 시에도 Detectron2가 필요합니다. Detectron2는 네이티브 Windows를 공식 지원하지 않으므로, **학습한 LayoutXLM 모델을 사용할 때는 WSL2 Ubuntu에서 애플리케이션을 실행해야 합니다.** Windows PowerShell에서는 LayoutXLM 없이 PP-OCRv5/EasyOCR와 규칙 기반 필드 분류로 실행할 수 있습니다.
-
-학습된 `model.safetensors`는 약 1.4GB이므로 GitHub에 올릴 때 일반 Git이 아니라 Git LFS를 사용해야 합니다.
+LayoutXLM과 규칙 기반 필드 분류는 현재 실행 경로에서 제거되었습니다. 과거 학습 코드와 모델은 이전 실험 재현을 위해 저장소에 남아 있지만 애플리케이션 추론에는 사용되지 않습니다.
 
 ## 주요 기능
 
 - 브라우저 카메라 촬영 및 JPG/PNG/WEBP/BMP 업로드(파일 선택·드래그앤드롭·즉시 미리보기)
 - OpenCV 외곽선 검출, 기울기·원근 보정, 밝기·초점 안내
 - 경량 PP-OCRv5 mobile 한국어·영어 딥러닝 인식과 EasyOCR 자동 보완
-- 선택형 LayoutXLM 문서 AI로 이름·회사·직책·주소 필드 보완(학습 모델 필요)
+- Gemini API 구조화 출력으로 이름·회사·직책·전화 1·2·팩스·이메일·웹사이트·주소 전체 분류
 - 앱 시작 후 OCR 모델 백그라운드 준비 및 고해상도 입력 자동 최적화
 - 이름, 회사, 직책, 전화번호 1·2, 이메일, 웹사이트, 주소 자동 분류
 - 인식 원문 확인 및 수정 후 재분류
@@ -26,18 +25,14 @@
 - UTF-8 CSV 및 서식이 적용된 Excel 내보내기
 - OpenCV `VideoCapture` 기반 별도 카메라 촬영 도구
 
-## 실행 환경 구분
+## 실행 환경
 
-| 실행 환경 | PP-OCRv5/EasyOCR | 규칙 기반 필드 분류 | 학습한 LayoutXLM 필드 분류 |
-| --- | --- | --- | --- |
-| Windows PowerShell | 지원 | 지원 | 지원하지 않음 |
-| WSL2 Ubuntu | 지원 | 지원 | 지원 |
-
-- Windows 10/11 및 WSL2 Ubuntu
-- Python 3.11 권장 (PaddlePaddle, EasyOCR, PyTorch 공통 호환 환경)
+- Windows 10/11 또는 WSL2 Ubuntu
+- Python 3.11 권장
+- 인터넷 연결과 Gemini API 키 필요
 - 노트북 내장 카메라 또는 USB 웹캠
 
-## Windows 기본 실행(LayoutXLM 미사용)
+## Windows 실행
 
 PowerShell에서 프로젝트 폴더로 이동한 뒤 실행합니다.
 
@@ -46,6 +41,11 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+python -m pip install -r requirements-llm.txt
+$env:GEMINI_API_KEY="새로_발급한_API_키"
+$env:CARDOCR_GEMINI_ENABLED="1"
+$env:CARDOCR_GEMINI_MODEL="gemini-2.5-flash"
+$env:CARDOCR_GEMINI_SEND_IMAGE="1"
 python app.py
 ```
 
@@ -53,19 +53,17 @@ python app.py
 
 > 앱 실행 직후 경량 PP-OCRv5 mobile 모델을 백그라운드에서 준비합니다. 처음 한 번은 모델을 사용자 폴더에 내려받기 때문에 인터넷 연결이 필요하며 상단 상태가 `OCR 준비됨`으로 바뀐 뒤 인식하면 대기시간이 줄어듭니다. 이후에는 내려받은 모델을 재사용합니다. PP-OCRv5 결과가 부족하거나 실행되지 않으면 EasyOCR가 자동으로 보완합니다.
 
-## WSL2 Ubuntu 전체 실행(LayoutXLM 사용)
-
-Windows 기본 설치에서는 기존 규칙 기반 분류가 사용됩니다. 명함 데이터로 미세조정한 LayoutXLM 모델을 사용하면 OCR 텍스트와 위치를 함께 분석해 이름·회사·직책·주소를 보완하고, 전화·팩스·이메일은 기존 정규식으로 검증합니다.
-
-LayoutXLM을 사용하려면 Ubuntu 터미널에서 실행합니다. 최초 1회 AI 의존성과 Detectron2를 설치합니다.
+## WSL2 Ubuntu 실행
 
 ```bash
 cd ~/projects/python2team_Project
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m pip install -r requirements-ai.txt
-python -m pip install --no-build-isolation "git+https://github.com/facebookresearch/detectron2.git"
-export CARDOCR_LAYOUT_MODEL_DIR="$PWD/models/business-card-layoutxlm"
+python -m pip install -r requirements-llm.txt
+export GEMINI_API_KEY="새로_발급한_API_키"
+export CARDOCR_GEMINI_ENABLED=1
+export CARDOCR_GEMINI_MODEL="gemini-2.5-flash"
+export CARDOCR_GEMINI_SEND_IMAGE=1
 python app.py
 ```
 
@@ -74,13 +72,16 @@ python app.py
 ```bash
 cd ~/projects/python2team_Project
 source .venv/bin/activate
-export CARDOCR_LAYOUT_MODEL_DIR="$PWD/models/business-card-layoutxlm"
+export GEMINI_API_KEY="새로_발급한_API_키"
+export CARDOCR_GEMINI_ENABLED=1
+export CARDOCR_GEMINI_MODEL="gemini-2.5-flash"
+export CARDOCR_GEMINI_SEND_IMAGE=1
 python app.py
 ```
 
-Ubuntu 터미널을 닫지 않은 상태에서 Windows 브라우저로 <http://127.0.0.1:5000>에 접속합니다. <http://127.0.0.1:5000/api/health>의 `field_classifier` 항목에서 `configured`와 `ready`가 모두 `true`이면 LayoutXLM이 적용된 상태입니다.
+위 설치 과정에서는 `requirements-ai.txt`, Detectron2, `CARDOCR_LAYOUT_MODEL_DIR`가 필요하지 않습니다. 브라우저에서 <http://127.0.0.1:5000/api/health>를 열어 `llm_classifier.configured`가 `true`인지 확인합니다. 명함을 한 번 인식한 뒤 `ready`가 `true`이고 `error`가 비어 있으면 실제 Gemini 분류까지 성공한 상태입니다.
 
-학습 데이터 형식과 학습 명령은 `training/README.md`를 확인하세요. LayoutXLM 모델이 없거나 로딩에 실패하면 애플리케이션은 규칙 기반 방식으로 계속 동작하지만, 학습한 AI 필드 분류는 사용되지 않습니다.
+`CARDOCR_GEMINI_SEND_IMAGE=1`이면 Gemini가 보정·축소된 명함 이미지와 OCR 텍스트·신뢰도·좌표를 함께 받아 전화기·휴대전화·팩스·봉투·지구본·위치 아이콘까지 확인합니다. `0`이면 OCR 텍스트만 전송합니다. 로컬 코드는 Gemini가 OCR 원문에 없는 값을 만들지 못하도록 근거를 확인하고 전화·팩스·이메일·웹사이트의 형식만 검증합니다. API 키는 소스코드나 Git에 저장하지 마세요.
 
 ## OpenCV 카메라 창으로 촬영
 
