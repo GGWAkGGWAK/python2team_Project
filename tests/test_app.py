@@ -5,6 +5,7 @@ import numpy as np
 
 from cardocr import create_app
 from cardocr.ocr_engine import OCRLine
+from cardocr.parser import ParsedCard
 
 
 def make_app(tmp_path):
@@ -25,7 +26,10 @@ def test_home_health_and_contact_crud(tmp_path):
     assert b'id="image-upload"' in home.data
     assert b'id="upload-dropzone"' in home.data
     assert b"image/jpeg,image/png,image/webp,image/bmp" in home.data
-    assert client.get("/api/health").get_json()["service"] == "cardocr"
+    health = client.get("/api/health").get_json()
+    assert health["service"] == "cardocr"
+    assert "field_classifier" not in health
+    assert "llm_classifier" in health
     assert client.get("/assets/styles.css?v=frontend-v8").mimetype == "text/css"
     assert client.get("/assets/app.js?v=frontend-v8").mimetype == "text/javascript"
 
@@ -89,7 +93,22 @@ def test_delete_contact_removes_unreferenced_scan(tmp_path):
     assert not scan.exists()
 
 
-def test_parse_endpoint(tmp_path):
+def test_parse_endpoint(tmp_path, monkeypatch):
+    from cardocr import routes
+
+    monkeypatch.setattr(
+        routes.gemini_classifier,
+        "enhance",
+        lambda _lines, parsed, **_kwargs: (
+            ParsedCard(
+                name="김하늘",
+                phone="010-3333-4444",
+                email="sky@example.com",
+                raw_text=parsed.raw_text,
+            ),
+            {"used": True, "ready": True, "error": ""},
+        ),
+    )
     client = make_app(tmp_path).test_client()
     response = client.post(
         "/api/parse",
@@ -113,6 +132,21 @@ def test_ocr_pipeline_with_stubbed_engine(tmp_path, monkeypatch):
             OCRLine("sky@example.com", 0.97, [[0, 6], [1, 6], [1, 7], [0, 7]]),
         ],
     )
+    monkeypatch.setattr(
+        routes.gemini_classifier,
+        "enhance",
+        lambda _lines, parsed, **_kwargs: (
+            ParsedCard(
+                name="김하늘",
+                company="주식회사 테스트",
+                job_title="대표",
+                phone="010-3333-4444",
+                email="sky@example.com",
+                raw_text=parsed.raw_text,
+            ),
+            {"used": True, "ready": True, "error": ""},
+        ),
+    )
     image = np.full((420, 720, 3), 245, dtype=np.uint8)
     cv2.rectangle(image, (12, 12), (707, 407), (30, 30, 30), 5)
     ok, encoded = cv2.imencode(".jpg", image)
@@ -129,6 +163,8 @@ def test_ocr_pipeline_with_stubbed_engine(tmp_path, monkeypatch):
     data = response.get_json()["data"]
     assert data["fields"]["name"] == "김하늘"
     assert data["fields"]["email"] == "sky@example.com"
+    assert "field_classifier" not in data
+    assert data["llm_classifier"]["used"] is True
     assert data["preview"].startswith("data:image/jpeg;base64,")
     assert data["processing_ms"]["total"] >= 0
     assert (tmp_path / "scans" / data["image_token"]).is_file()
