@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>CardFlow OCR · 명함 고객관리</title>
-    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v8') }}">
-    <script defer src="{{ url_for('web.frontend_script', v='frontend-v8') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('web.frontend_styles', v='frontend-v9') }}">
+    <script defer src="{{ url_for('web.frontend_script', v='frontend-v9') }}"></script>
   </head>
   <body>
     <header class="topbar">
@@ -89,16 +89,28 @@
               <input id="contact-id" type="hidden">
               <input id="image-token" type="hidden">
               <div class="form-grid">
-                <label><span>이름</span><input name="name" placeholder="홍길동"></label>
-                <label><span>회사</span><input name="company" placeholder="주식회사 카드플로우"></label>
-                <label><span>직책</span><input name="job_title" placeholder="영업팀 과장"></label>
-                <label><span>전화번호 1</span><input name="phone" inputmode="tel" placeholder="010-1234-5678"></label>
+                <label><span>이름 <em data-confidence="name"></em></span><input name="name" placeholder="홍길동"></label>
+                <label><span>회사 <em data-confidence="company"></em></span><input name="company" placeholder="주식회사 카드플로우"></label>
+                <label><span>직책 <em data-confidence="job_title"></em></span><input name="job_title" placeholder="영업팀 과장"></label>
+                <label><span>전화번호 1 <em data-confidence="phone"></em></span><input name="phone" inputmode="tel" placeholder="010-1234-5678"></label>
                 <label><span>전화번호 2</span><input name="phone2" inputmode="tel" placeholder="053-123-4567"></label>
                 <label><span>팩스</span><input name="fax" inputmode="tel" placeholder="053-123-4568"></label>
-                <label><span>이메일</span><input name="email" type="email" placeholder="name@company.com"></label>
+                <label><span>이메일 <em data-confidence="email"></em></span><input name="email" type="email" placeholder="name@company.com"></label>
                 <label class="wide"><span>웹사이트</span><input name="website" placeholder="www.company.com"></label>
+                <label><span>사업자등록번호</span><input name="biz_no" inputmode="numeric" placeholder="123-45-67890"></label>
+                <label><span>QR 링크</span><input name="qr_url" placeholder="https://company.com"></label>
                 <label class="wide"><span>주소</span><input name="address" placeholder="서울특별시 ..."></label>
                 <label class="wide"><span>메모</span><textarea name="memo" rows="2" placeholder="미팅 내용이나 후속 조치를 기록하세요"></textarea></label>
+              </div>
+              <section id="verification-panel" class="verification-panel" hidden aria-live="polite">
+                <div class="verification-heading"><strong>Contact Score</strong><span>검증 결과</span></div>
+                <div id="score-cards" class="score-cards"></div>
+                <ul id="verification-checks" class="verification-checks"></ul>
+                <div id="duplicate-note" class="duplicate-note" hidden></div>
+              </section>
+              <div class="verification-options">
+                <label class="toggle-option"><input id="online-validation" name="online_validation" type="checkbox"><span>온라인 검증 사용</span><small>MX·웹사이트 조회, 기본 OFF</small></label>
+                <button id="reverify-button" class="button outline small" type="button" hidden>저장된 명함 재검증</button>
               </div>
               <details class="raw-details">
                 <summary>OCR 원문 확인</summary>
@@ -130,6 +142,7 @@
               <input id="contact-search" type="search" placeholder="이름, 회사, 전화번호, 이메일 검색">
             </label>
             <div class="export-actions">
+              <select id="contact-filter" aria-label="고객 필터"><option value="">전체 명함</option><option value="warn">주의 명함</option><option value="stale">오래된 명함</option></select>
               <a id="csv-export" class="button outline small" href="/api/export?format=csv">CSV</a>
               <a id="xlsx-export" class="button outline small" href="/api/export?format=xlsx">Excel</a>
             </div>
@@ -137,7 +150,7 @@
           <div class="directory-summary"><strong id="contact-count">0</strong>명의 고객</div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>고객</th><th>회사 / 직책</th><th>전화번호</th><th>이메일</th><th>등록일</th><th><span class="sr-only">작업</span></th></tr></thead>
+              <thead><tr><th>고객</th><th>회사 / 직책</th><th>분류 / 검증</th><th>전화번호</th><th>이메일</th><th>등록일</th><th><span class="sr-only">작업</span></th></tr></thead>
               <tbody id="contacts-body"></tbody>
             </table>
             <div id="empty-contacts" class="empty-state">

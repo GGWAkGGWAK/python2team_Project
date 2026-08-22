@@ -163,11 +163,53 @@ def test_ocr_pipeline_with_stubbed_engine(tmp_path, monkeypatch):
     data = response.get_json()["data"]
     assert data["fields"]["name"] == "김하늘"
     assert data["fields"]["email"] == "sky@example.com"
-    assert "field_classifier" not in data
     assert data["llm_classifier"]["used"] is True
+    assert data["field_confidence"]["email"]["confidence"] == 0.97
+    assert set(data["verification"]["scores"]) == {"accuracy", "consistency", "safety"}
     assert data["preview"].startswith("data:image/jpeg;base64,")
     assert data["processing_ms"]["total"] >= 0
     assert (tmp_path / "scans" / data["image_token"]).is_file()
+
+
+def test_saved_contact_verification_and_warn_filter(tmp_path):
+    client = make_app(tmp_path).test_client()
+    created = client.post("/api/contacts", json={
+        "name": "홍길동", "company": "ABC", "phone": "010-1234-5678",
+        "email": "hong@abc.com", "website": "abc.com", "qr_url": "http://abc-login.xyz",
+    })
+    assert created.status_code == 201
+    contact = created.get_json()["data"]
+    assert contact["score_safety"] == "warn"
+    assert client.get("/api/contacts?flag=warn").get_json()["count"] == 1
+    verified = client.post(f"/api/contacts/{contact['id']}/verify")
+    assert verified.status_code == 200
+    assert verified.get_json()["verification"]["scores"]["safety"] == "warn"
+
+
+def test_online_reverification_detects_stale_contact(tmp_path, monkeypatch):
+    from cardocr import routes
+
+    client = make_app(tmp_path).test_client()
+    contact = client.post("/api/contacts", json={
+        "name": "김온라인", "job_title": "영업팀장", "email": "kim@example.com",
+        "website": "example.com",
+    }).get_json()["data"]
+
+    ok_checks = [
+        {"id": "email_mx", "label": "이메일 도메인", "state": "ok", "message": "정상", "field": "email", "suggestion": None, "online": True},
+        {"id": "website_reachable", "label": "웹사이트 접속", "state": "ok", "message": "정상", "field": "website", "suggestion": None, "online": True},
+    ]
+    monkeypatch.setattr(routes, "run_online_checks", lambda _fields: ok_checks)
+    first = client.post(f"/api/contacts/{contact['id']}/verify", json={"online_validation": True})
+    assert first.get_json()["stale"] is False
+    assert first.get_json()["data"]["category"] == "영업"
+
+    warn_checks = [dict(ok_checks[0]), {**ok_checks[1], "state": "warn", "message": "접속 실패"}]
+    monkeypatch.setattr(routes, "run_online_checks", lambda _fields: warn_checks)
+    second = client.post(f"/api/contacts/{contact['id']}/verify", json={"online_validation": True})
+    assert second.get_json()["stale"] is True
+    assert second.get_json()["data"]["stale_status"] == "stale"
+    assert client.get("/api/contacts?flag=stale").get_json()["count"] == 1
 
 
 def test_ocr_upload_rejects_unsupported_extension(tmp_path):

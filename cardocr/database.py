@@ -20,6 +20,17 @@ CONTACT_FIELDS = (
     "memo",
     "raw_text",
     "image_token",
+    "phone_norm",
+    "company_norm",
+    "biz_no",
+    "qr_url",
+    "score_accuracy",
+    "score_consistency",
+    "score_safety",
+    "verify_json",
+    "verified_at",
+    "category",
+    "stale_status",
 )
 
 
@@ -38,6 +49,17 @@ CREATE TABLE IF NOT EXISTS contacts (
     memo TEXT NOT NULL DEFAULT '',
     raw_text TEXT NOT NULL DEFAULT '',
     image_token TEXT NOT NULL DEFAULT '',
+    phone_norm TEXT NOT NULL DEFAULT '',
+    company_norm TEXT NOT NULL DEFAULT '',
+    biz_no TEXT NOT NULL DEFAULT '',
+    qr_url TEXT NOT NULL DEFAULT '',
+    score_accuracy INTEGER NOT NULL DEFAULT 0,
+    score_consistency INTEGER NOT NULL DEFAULT 0,
+    score_safety TEXT NOT NULL DEFAULT '',
+    verify_json TEXT NOT NULL DEFAULT '',
+    verified_at TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    stale_status TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -67,14 +89,19 @@ class Database:
             columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(contacts)")
             }
-            if "phone2" not in columns:
-                connection.execute(
-                    "ALTER TABLE contacts ADD COLUMN phone2 TEXT NOT NULL DEFAULT ''"
-                )
-            if "fax" not in columns:
-                connection.execute(
-                    "ALTER TABLE contacts ADD COLUMN fax TEXT NOT NULL DEFAULT ''"
-                )
+            migrations = {
+                "phone2": "TEXT NOT NULL DEFAULT ''", "fax": "TEXT NOT NULL DEFAULT ''",
+                "phone_norm": "TEXT NOT NULL DEFAULT ''", "company_norm": "TEXT NOT NULL DEFAULT ''",
+                "biz_no": "TEXT NOT NULL DEFAULT ''", "qr_url": "TEXT NOT NULL DEFAULT ''",
+                "score_accuracy": "INTEGER NOT NULL DEFAULT 0",
+                "score_consistency": "INTEGER NOT NULL DEFAULT 0",
+                "score_safety": "TEXT NOT NULL DEFAULT ''", "verify_json": "TEXT NOT NULL DEFAULT ''",
+                "verified_at": "TEXT NOT NULL DEFAULT ''",
+                "category": "TEXT NOT NULL DEFAULT ''", "stale_status": "TEXT NOT NULL DEFAULT ''",
+            }
+            for name, definition in migrations.items():
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE contacts ADD COLUMN {name} {definition}")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_contacts_phone2 ON contacts(phone2)"
             )
@@ -114,17 +141,21 @@ class Database:
             ).fetchone()
         return self._to_dict(row)
 
-    def list_contacts(self, query: str = "") -> list[dict[str, Any]]:
+    def list_contacts(self, query: str = "", flag: str = "") -> list[dict[str, Any]]:
         query = query.strip()
         sql = "SELECT * FROM contacts"
         params: Iterable[str] = ()
+        conditions: list[str] = []
         if query:
             needle = f"%{query}%"
-            sql += (
-                " WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? "
-                "OR phone2 LIKE ? OR fax LIKE ? OR email LIKE ?"
-            )
+            conditions.append("(name LIKE ? OR company LIKE ? OR phone LIKE ? OR phone2 LIKE ? OR fax LIKE ? OR email LIKE ?)")
             params = (needle, needle, needle, needle, needle, needle)
+        if flag == "warn":
+            conditions.append("score_safety = 'warn'")
+        if flag == "stale":
+            conditions.append("stale_status = 'stale'")
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
         sql += " ORDER BY updated_at DESC, id DESC"
         with self.connect() as connection:
             rows = connection.execute(sql, tuple(params)).fetchall()

@@ -59,6 +59,8 @@ class ParsedCard:
     fax: str = ""
     email: str = ""
     website: str = ""
+    biz_no: str = ""
+    qr_url: str = ""
     address: str = ""
     raw_text: str = ""
 
@@ -366,6 +368,12 @@ def _company_score(line: str, index: int, height: float = 0.0) -> float:
 def parse_business_card(lines: Iterable[object]) -> ParsedCard:
     clean_lines, line_heights = _normalize_lines(lines)
     raw_text = "\n".join(clean_lines)
+    biz_match = re.search(
+        r"(?:사업자(?:등록)?번호|사업자번호|등록번호)?\s*[:.]?\s*"
+        r"(?<!\d)(\d{3}[\s.-]?\d{2}[\s.-]?\d{5})(?!\d)",
+        raw_text,
+    )
+    biz_no = re.sub(r"\D", "", biz_match.group(1)) if biz_match else ""
 
     email = _extract_email(clean_lines)
     phone, phone2 = _extract_phones(clean_lines)
@@ -479,6 +487,36 @@ def parse_business_card(lines: Iterable[object]) -> ParsedCard:
         fax=fax,
         email=email,
         website=website,
+        biz_no=biz_no,
         address=address,
         raw_text=raw_text,
     )
+
+
+def map_field_confidence(parsed: ParsedCard, lines: Iterable[object]) -> dict[str, dict]:
+    """Map parsed values back to the most similar OCR line, retaining its box."""
+    sources = list(lines)
+    result: dict[str, dict] = {}
+    for field, value in parsed.to_dict().items():
+        if field in {"raw_text", "qr_url"} or not value:
+            continue
+        normalized_value = re.sub(r"\W", "", str(value)).lower()
+        best: tuple[float, object] | None = None
+        for line in sources:
+            text = str(getattr(line, "text", line))
+            normalized_line = re.sub(r"\W", "", text).lower()
+            if not normalized_line:
+                continue
+            overlap = sum(char in normalized_line for char in set(normalized_value)) / max(1, len(set(normalized_value)))
+            contained = normalized_value in normalized_line or normalized_line in normalized_value
+            score = (1.0 if contained else overlap) * float(getattr(line, "confidence", 1.0))
+            if best is None or score > best[0]:
+                best = (score, line)
+        if best and best[0] >= 0.25:
+            line = best[1]
+            result[field] = {
+                "confidence": round(float(getattr(line, "confidence", 1.0)), 4),
+                "box": getattr(line, "box", []),
+                "source_text": str(getattr(line, "text", line)),
+            }
+    return result

@@ -63,3 +63,6 @@ def test_existing_database_is_migrated_with_second_phone_and_fax(tmp_path):
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(contacts)")}
     assert "phone2" in columns
     assert "fax" in columns
+    assert {"phone_norm", "company_norm", "biz_no", "qr_url", "score_accuracy",
+            "score_consistency", "score_safety", "verify_json", "verified_at",
+            "category", "stale_status"} <= columns

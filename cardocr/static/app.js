@@ -28,6 +28,13 @@
     emptyContacts: $("#empty-contacts"),
     contactCount: $("#contact-count"),
     ocrStatus: $("#ocr-status"),
+    verificationPanel: $("#verification-panel"),
+    scoreCards: $("#score-cards"),
+    verificationChecks: $("#verification-checks"),
+    duplicateNote: $("#duplicate-note"),
+    onlineValidation: $("#online-validation"),
+    reverifyButton: $("#reverify-button"),
+    contactFilter: $("#contact-filter"),
   };
 
   function toast(message, type = "success", duration = 3800) {
@@ -149,6 +156,32 @@
     }
   }
 
+  function renderFieldConfidence(confidence = {}) {
+    $$('[data-confidence]').forEach((badge) => {
+      const value = confidence[badge.dataset.confidence]?.confidence;
+      badge.textContent = Number.isFinite(value) ? `${Math.round(value * 100)}%` : "";
+      badge.className = Number.isFinite(value) ? (value < 0.65 ? "confidence-low" : "confidence-ok") : "";
+    });
+  }
+
+  function renderVerification(verification) {
+    if (!verification?.scores) {
+      elements.verificationPanel.hidden = true;
+      return;
+    }
+    const { accuracy, consistency, safety } = verification.scores;
+    const safetyLabel = { ok: "확인됨", unknown: "확인 불가", warn: "주의" }[safety] || "확인 불가";
+    elements.scoreCards.innerHTML = `
+      <div><span>인식 정확도</span><strong>${accuracy || 0}<small>점</small></strong></div>
+      <div><span>정보 정합성</span><strong>${consistency || 0}<small>점</small></strong></div>
+      <div class="score-${escapeHtml(safety)}"><span>안전성</span><strong>${escapeHtml(safetyLabel)}</strong></div>`;
+    elements.verificationChecks.innerHTML = (verification.checks || []).map((check) => `
+      <li class="check-${escapeHtml(check.state)}"><i></i><div><strong>${escapeHtml(check.label)}</strong><span>${escapeHtml(check.message)}</span>${check.suggestion ? `<button class="apply-suggestion" data-field="${escapeHtml(check.field)}" data-value="${escapeHtml(check.suggestion)}" type="button">${escapeHtml(check.suggestion)} 적용</button>` : ""}</div></li>`).join("");
+    elements.duplicateNote.hidden = !verification.duplicate;
+    elements.duplicateNote.textContent = verification.duplicate ? `유사한 기존 고객 #${verification.duplicate.contact_id} · ${Math.round(verification.duplicate.similarity * 100)}% (${verification.duplicate.reason})` : "";
+    elements.verificationPanel.hidden = false;
+  }
+
   function validateImageFile(file) {
     if (!(file instanceof File)) return "업로드할 이미지 파일을 선택해 주세요.";
     if (file.size <= 0) return "내용이 없는 파일은 업로드할 수 없습니다.";
@@ -196,6 +229,7 @@
     }
     const formData = new FormData();
     formData.append("image", file, file.name || "business-card.jpg");
+    formData.append("online_validation", elements.onlineValidation.checked ? "true" : "false");
     elements.processing.classList.add("active");
     try {
       const result = await api("/api/ocr", { method: "POST", body: formData });
@@ -207,6 +241,8 @@
       elements.imageToken.value = data.image_token;
       elements.contactId.value = "";
       fillForm(data.fields);
+      renderFieldConfidence(data.field_confidence);
+      renderVerification(data.verification);
       const notes = data.detection.warnings || [];
       elements.detectionNote.hidden = notes.length === 0;
       elements.detectionNote.textContent = notes.join(" ");
@@ -276,6 +312,9 @@
     elements.processing.classList.remove("active");
     elements.detectionNote.hidden = true;
     elements.detectionNote.textContent = "";
+    elements.reverifyButton.hidden = true;
+    renderFieldConfidence();
+    renderVerification(null);
     const rawDetails = elements.rawText.closest("details");
     if (rawDetails) rawDetails.open = false;
     elements.canvas.width = 0;
@@ -302,6 +341,7 @@
       <tr>
         <td><div class="person-cell"><span class="avatar">${initials(contact.name)}</span><span>${escapeHtml(contact.name || "이름 없음")}</span></div></td>
         <td>${escapeHtml(contact.company || "-")}<span class="subtle">${escapeHtml(contact.job_title || "")}</span></td>
+        <td><span class="contact-category">${escapeHtml(contact.category || "미분류")}</span><span class="subtle">${contact.stale_status === "stale" ? "오래된 명함" : contact.score_safety === "warn" ? "주의" : "검증됨"}</span></td>
         <td>${escapeHtml(contact.phone || "-")}<span class="subtle">${escapeHtml(contact.phone2 || "")}</span><span class="subtle">${contact.fax ? `팩스 ${escapeHtml(contact.fax)}` : ""}</span></td>
         <td>${escapeHtml(contact.email || "-")}</td>
         <td>${escapeHtml((contact.created_at || "").slice(0, 10))}</td>
@@ -315,7 +355,8 @@
   async function loadContacts() {
     try {
       const query = encodeURIComponent(elements.search.value.trim());
-      const result = await api(`/api/contacts?q=${query}`);
+      const flag = encodeURIComponent(elements.contactFilter.value);
+      const result = await api(`/api/contacts?q=${query}&flag=${flag}`);
       renderContacts(result.data);
       $("#csv-export").href = `/api/export?format=csv&q=${query}`;
       $("#xlsx-export").href = `/api/export?format=xlsx&q=${query}`;
@@ -331,10 +372,14 @@
       fillForm(result.data);
       elements.contactId.value = result.data.id;
       elements.imageToken.value = result.data.image_token || "";
+      elements.reverifyButton.hidden = false;
       if (result.data.image_token) {
         elements.preview.src = `/api/scans/${result.data.image_token}`;
         elements.cameraStage.className = "camera-stage preview-active";
       }
+      let storedChecks = [];
+      try { storedChecks = JSON.parse(result.data.verify_json || "[]"); } catch { storedChecks = []; }
+      renderVerification({ scores: { accuracy: result.data.score_accuracy, consistency: result.data.score_consistency, safety: result.data.score_safety || "unknown" }, checks: storedChecks, duplicate: null });
       $("#save-button").lastChild.textContent = " 고객정보 수정";
       switchView("scanner");
     } catch (error) {
@@ -359,13 +404,30 @@
       const result = await api("/api/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ raw_text: elements.rawText.value }),
+        body: JSON.stringify({ raw_text: elements.rawText.value, online_validation: elements.onlineValidation.checked }),
       });
       fillForm(result.data.fields);
+      renderVerification(result.data.verification);
       toast("OCR 원문을 다시 분류했습니다.");
     } catch (error) {
       toast(error.message, "error");
     }
+  }
+
+  async function reverifyContact() {
+    const id = elements.contactId.value;
+    if (!id) return;
+    elements.reverifyButton.disabled = true;
+    try {
+      const result = await api(`/api/contacts/${id}/verify`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ online_validation: elements.onlineValidation.checked }),
+      });
+      fillForm(result.data);
+      renderVerification(result.verification);
+      toast(result.stale ? `오래된 정보가 감지되었습니다: ${result.stale_reasons.join(", ")}` : "재검증을 완료했습니다.", result.stale ? "error" : "success");
+    } catch (error) { toast(error.message, "error"); }
+    finally { elements.reverifyButton.disabled = false; }
   }
 
   $$(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
@@ -394,6 +456,13 @@
     if (file) uploadImage(file);
   });
   elements.form.addEventListener("submit", saveContact);
+  elements.reverifyButton.addEventListener("click", reverifyContact);
+  elements.verificationChecks.addEventListener("click", (event) => {
+    const button = event.target.closest(".apply-suggestion");
+    if (!button) return;
+    const field = elements.form.elements.namedItem(button.dataset.field);
+    if (field) field.value = button.dataset.value;
+  });
   $("#form-reset").addEventListener("click", resetForm);
   $("#reparse-button").addEventListener("click", reparseText);
   $("#new-contact").addEventListener("click", () => { resetForm(); switchView("scanner"); });
@@ -401,6 +470,7 @@
     window.clearTimeout(state.searchTimer);
     state.searchTimer = window.setTimeout(loadContacts, 250);
   });
+  elements.contactFilter.addEventListener("change", loadContacts);
   elements.contactsBody.addEventListener("click", (event) => {
     const edit = event.target.closest(".edit-contact");
     const remove = event.target.closest(".delete-contact");

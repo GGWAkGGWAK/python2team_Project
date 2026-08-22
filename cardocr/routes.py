@@ -7,6 +7,8 @@ import io
 import re
 import time
 import uuid
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +34,13 @@ from .image_processing import (
     resize_for_ocr,
 )
 from .ocr_engine import OCRLine, OCRUnavailableError, engine
-from .parser import ParsedCard
+from .parser import map_field_confidence, parse_business_card
+from .security import extract_qr_url
+from .online_validator import run_online_checks
+from .validator import (
+    append_online_checks, classify_job, normalize_company, normalize_phone,
+    verification_storage, verify_contact,
+)
 
 
 web = Blueprint("web", __name__)
@@ -109,6 +117,27 @@ def _export_value(value: Any) -> Any:
     return value
 
 
+def _truthy(value: Any) -> bool:
+    return str(value or "").lower() in {"1", "true", "yes", "on"}
+
+
+def _verified_payload(data: dict[str, Any], field_confidence=None, exclude_id=None,
+                      online: bool = False) -> tuple[dict, dict]:
+    prepared = dict(data)
+    prepared["phone_norm"] = normalize_phone(str(prepared.get("phone", "")))
+    prepared["company_norm"] = normalize_company(str(prepared.get("company", "")))
+    verification = verify_contact(
+        prepared, field_confidence, _database().list_contacts(), exclude_id=exclude_id
+    )
+    if online:
+        append_online_checks(verification, run_online_checks(prepared))
+    prepared.update(verification_storage(verification))
+    prepared["verified_at"] = datetime.now().isoformat(timespec="seconds")
+    prepared["category"] = classify_job(str(prepared.get("job_title", "")))
+    prepared["stale_status"] = "current" if online else str(prepared.get("stale_status", "") or "unknown")
+    return prepared, verification
+
+
 @web.get("/")
 def index():
     return render_template("index.html")
@@ -154,6 +183,7 @@ def health():
 
 
 @web.post("/api/ocr")
+@web.post("/api/recognize")
 def recognize_card():
     started = time.perf_counter()
     upload = request.files.get("image")
@@ -184,12 +214,21 @@ def recognize_card():
         )
         return _error(str(exc), 503, "OCR_UNAVAILABLE")
 
-    parsed = ParsedCard(raw_text="\n".join(line.text for line in lines))
+    parsed = parse_business_card(lines)
     parsed, llm_classifier_info = gemini_classifier.enhance(
         lines,
         parsed,
         image_bytes=encode_jpeg(ocr_image, quality=88),
     )
+    parsed.qr_url = extract_qr_url(source, card.image)
+    field_confidence = map_field_confidence(parsed, lines)
+    verification = verify_contact(
+        parsed.to_dict(), field_confidence, _database().list_contacts()
+    )
+    if _truthy(request.form.get("online_validation")):
+        append_online_checks(
+            verification, run_online_checks(parsed.to_dict())
+        )
     uncertain_mixed_text = any(
         line.confidence < 0.45
         and bool(re.search(r"[가-힣]", line.text))
@@ -240,6 +279,8 @@ def recognize_card():
                     {"text": line.text, "confidence": line.confidence, "box": line.box}
                     for line in lines
                 ],
+                "field_confidence": field_confidence,
+                "verification": verification,
                 "image_token": image_token,
                 "preview": as_data_url(card.image),
                 "processing_ms": timings,
@@ -272,14 +313,24 @@ def parse_text():
         )
         for index, text in enumerate(text_lines)
     ]
-    parsed = ParsedCard(raw_text="\n".join(text_lines))
+    parsed = parse_business_card(lines)
     parsed, classifier_info = gemini_classifier.enhance(lines, parsed)
+    field_confidence = map_field_confidence(parsed, lines)
+    verification = verify_contact(
+        parsed.to_dict(), field_confidence, _database().list_contacts()
+    )
+    if _truthy(data.get("online_validation")):
+        append_online_checks(
+            verification, run_online_checks(parsed.to_dict())
+        )
     return jsonify(
         {
             "ok": True,
             "data": {
                 "fields": parsed.to_dict(),
                 "llm_classifier": classifier_info,
+                "field_confidence": field_confidence,
+                "verification": verification,
             },
         }
     )
@@ -288,7 +339,7 @@ def parse_text():
 @web.get("/api/contacts")
 def list_contacts():
     query = request.args.get("q", "")
-    contacts = _database().list_contacts(query)
+    contacts = _database().list_contacts(query, request.args.get("flag", ""))
     return jsonify({"ok": True, "data": contacts, "count": len(contacts)})
 
 
@@ -321,7 +372,9 @@ def create_contact():
             409,
         )
     data["image_token"] = _safe_image_token(data.get("image_token"))
-    return jsonify({"ok": True, "data": _database().create_contact(data)}), 201
+    data, verification = _verified_payload(data, online=_truthy(data.get("online_validation")))
+    contact = _database().create_contact(data)
+    return jsonify({"ok": True, "data": contact, "verification": verification}), 201
 
 
 @web.get("/api/contacts/<int:contact_id>")
@@ -366,10 +419,39 @@ def update_contact(contact_id: int):
         return _error("고객정보를 찾을 수 없습니다.", 404, "NOT_FOUND")
     image_token = _safe_image_token(data.get("image_token"))
     data["image_token"] = image_token or existing.get("image_token", "")
+    data, verification = _verified_payload(
+        data, exclude_id=contact_id, online=_truthy(data.get("online_validation"))
+    )
     contact = _database().update_contact(contact_id, data)
     if existing.get("image_token") != data["image_token"]:
         _delete_scan_if_orphaned(str(existing.get("image_token", "")))
-    return jsonify({"ok": True, "data": contact})
+    return jsonify({"ok": True, "data": contact, "verification": verification})
+
+
+@web.post("/api/contacts/<int:contact_id>/verify")
+def verify_saved_contact(contact_id: int):
+    existing = _database().get_contact(contact_id)
+    if existing is None:
+        return _error("고객정보를 찾을 수 없습니다.", 404, "NOT_FOUND")
+    payload = request.get_json(silent=True) or {}
+    try:
+        previous_checks = json.loads(str(existing.get("verify_json", "") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        previous_checks = []
+    online = _truthy(payload.get("online_validation"))
+    prepared, verification = _verified_payload(
+        existing, exclude_id=contact_id, online=online
+    )
+    previous_states = {item.get("id"): item.get("state") for item in previous_checks}
+    stale_reasons = [item["label"] for item in verification["checks"]
+                     if item.get("online") and item["state"] == "warn"
+                     and previous_states.get(item["id"]) == "ok"]
+    stale = bool(stale_reasons)
+    if online:
+        prepared["stale_status"] = "stale" if stale else "current"
+    contact = _database().update_contact(contact_id, prepared)
+    return jsonify({"ok": True, "data": contact, "verification": verification,
+                    "stale": stale, "stale_reasons": stale_reasons})
 
 
 @web.delete("/api/contacts/<int:contact_id>")
